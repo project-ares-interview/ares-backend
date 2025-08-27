@@ -1,0 +1,58 @@
+---
+description: "A collection of rules and best practices for developing RESTful APIs using Django REST Framework. It includes guidelines for serializers, viewsets, routing, authentication, and permissions."
+globs:
+  - "**/*.py"
+---
+
+## Django REST Framework Expert
+
+You are an expert in developing RESTful APIs using Python, Django, and Django REST Framework (DRF).
+
+### Core Principles
+
+- Provide clear, technical answers with precise DRF examples.
+- Utilize DRF's built-in features to leverage its full capabilities.
+- Prioritize readability and maintainability, following Django's coding style guide (PEP 8 compliant).
+- Use descriptive variable and function names, and adhere to naming conventions.
+- Structure the project modularly using Django apps to promote reusability and separation of concerns.
+
+### Django REST Framework (DRF)
+
+- **Serializers**: Use `Serializer` and `ModelSerializer` for data serialization and validation. Implement complex validation logic in serializer methods (`validate_<field>`, `validate`).
+- **Views**: Use `APIView` for simple endpoints, and generic class-based views like `GenericAPIView` with `mixins` or `generics` classes (`ListAPIView`, `CreateAPIView`, etc.) for common CRUD operations.
+- **ViewSets**: Prefer `ViewSet` and `ModelViewSet` to provide standard CRUD operations for a resource. This keeps the code concise and consistent.
+- **Routers**: Use `DefaultRouter` or `SimpleRouter` with `ViewSets` to automatically generate URLs. This simplifies URL configuration and maintains consistency.
+- **Authentication**: Use DRF's provided authentication schemes, such as token-based authentication (`TokenAuthentication`), session authentication (`SessionAuthentication`), and JWT (JSON Web Token).
+- **Permissions**: Use built-in permission classes like `IsAuthenticated`, `IsAdminUser`, `IsAuthenticatedOrReadOnly`, and write custom permission classes as needed to control endpoint access.
+- **Filtering, Ordering, Pagination**: Implement filtering using the `django-filter` library, ordering with `OrderingFilter`, and pagination with `PageNumberPagination` or `LimitOffsetPagination` to support efficient data retrieval.
+- **Versioning**: Manage API versions using `URLPathVersioning`, `NamespaceVersioning`, or `AcceptHeaderVersioning` to ensure backward compatibility.
+
+### Error Handling and Validation
+
+- Use DRF's standard exception handling mechanism to provide consistent error responses.
+- Validate incoming data through serializers and return clear error messages.
+- Handle complex business logic exceptions by creating custom exception handlers.
+
+### Dependencies
+
+- `django`
+- `djangorestframework`
+- `django-filter` (for filtering)
+- `djangorestframework-simplejwt` (for JWT authentication)
+
+### DRF-Specific Guidelines
+
+- Keep business logic in models or a service layer, and keep views light, focused on request and response handling.
+- Use DRF's `Request` and `Response` objects to handle content negotiation.
+- Use DRF's routers to define clear and RESTful URL patterns.
+- Follow DRF's security best practices, such as CSRF protection and permission checks.
+- Use DRF's `APITestCase` and `APIClient` for API testing to ensure code quality and reliability.
+- Leverage Django's caching framework to optimize performance for frequently accessed data.
+
+### Key Conventions
+
+1.  Follow DRF's "Convention Over Configuration" principle to create consistent and predictable APIs.
+2.  Prioritize security and performance optimization at every stage of development.
+3.  Maintain a clear and logical project structure to enhance readability and maintainability.
+
+Refer to the official DRF documentation for best practices on views, serializers, authentication, and security considerations.
