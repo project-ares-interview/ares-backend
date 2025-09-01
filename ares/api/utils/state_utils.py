@@ -3,10 +3,10 @@ from __future__ import annotations
 from typing import List, Dict, Any, Optional
 
 def history_labels(history: List[Dict[str, Any]]) -> List[str]:
-    return [h["id"] for h in history or []]
+    return [h.get("id","") for h in (history or [])]
 
 def ensure_plan(plan: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    plan = plan or {}
+    plan = dict(plan or {})
     plan.setdefault("mode", "혼합형(추천)")
     plan.setdefault("difficulty", "보통")
     plan.setdefault("outline", [])
@@ -15,6 +15,8 @@ def ensure_plan(plan: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     plan.setdefault("bank_cursor", 0)
     plan.setdefault("main_idx", 0)
     plan.setdefault("follow_idx", 0)
+    plan.setdefault("follow_per_main", 2)
+    plan.setdefault("max_follow", 6)
     return plan
 
 def add_main_turn(history: List[Dict[str, Any]], plan: Dict[str, Any], q_text: str) -> str:
