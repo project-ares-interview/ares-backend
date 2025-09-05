@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from ares.api.models import MilitaryService
+from ares.api.models.profile import MilitaryService
 
 
 class MilitaryServiceSerializer(serializers.ModelSerializer):

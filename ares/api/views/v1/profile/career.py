@@ -2,7 +2,7 @@ from django.db.models import Max
 from rest_framework import viewsets
 from rest_framework.permissions import IsAuthenticated
 
-from ares.api.models import Career
+from ares.api.models.profile import Career
 from ares.api.serializers.v1.profile.career import CareerSerializer
 
 

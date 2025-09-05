@@ -1,19 +1,7 @@
-from .profile import (
-    Career,
-    Disability,
-    Education,
-    JobInterest,
-    MilitaryService,
-    Patriot,
-)
+from .cover_letter import CoverLetter
 from .user import User
 
 __all__ = [
     "User",
-    "Career",
-    "Disability",
-    "Education",
-    "JobInterest",
-    "MilitaryService",
-    "Patriot",
+    "CoverLetter",
 ]

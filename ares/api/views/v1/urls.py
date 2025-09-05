@@ -2,6 +2,7 @@ from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import TokenRefreshView
 
+from ares.api.views.v1.cover_letter import CoverLetterViewSet
 from ares.api.views.v1.example import ExampleViewSet
 from ares.api.views.v1.profile import (
     CareerViewSet,
@@ -10,6 +11,14 @@ from ares.api.views.v1.profile import (
     JobInterestViewSet,
     MilitaryServiceViewSet,
     PatriotViewSet,
+)
+from ares.api.views.v1.resume.base import ResumeViewSet
+from ares.api.views.v1.resume import (
+    ResumeAwardViewSet,
+    ResumeCareerViewSet,
+    ResumeEducationViewSet,
+    ResumeLanguageViewSet,
+    ResumeLinkViewSet,
 )
 from ares.api.views.v1.social import GoogleLogin, GoogleRegisterView
 from ares.api.views.v1.user import UserDetailView, UserRegisterView
@@ -21,7 +30,128 @@ router.register(r"examples", ExampleViewSet, basename="example")
 urlpatterns = [
     # Router URLs
     path("", include(router.urls)),
-
+    # Cover Letter URLs
+    path(
+        "cover-letters/",
+        CoverLetterViewSet.as_view({"get": "list", "post": "create"}),
+        name="cover-letter-list",
+    ),
+    path(
+        "cover-letters/<int:pk>/",
+        CoverLetterViewSet.as_view(
+            {
+                "get": "retrieve",
+                "put": "update",
+                "patch": "partial_update",
+                "delete": "destroy",
+            }
+        ),
+        name="cover-letter-detail",
+    ),
+    # Resume URLs (Template)
+    path(
+        "resumes/",
+        ResumeViewSet.as_view({"get": "list", "post": "create"}),
+        name="resume-list",
+    ),
+    path(
+        "resumes/<int:pk>/",
+        ResumeViewSet.as_view(
+            {
+                "get": "retrieve",
+                "put": "update",
+                "patch": "partial_update",
+                "delete": "destroy",
+            }
+        ),
+        name="resume-detail",
+    ),
+    # Resume Detail URLs (Nested)
+    path(
+        "resumes/<int:resume_pk>/careers/",
+        ResumeCareerViewSet.as_view({"get": "list", "post": "create"}),
+        name="resume-career-list",
+    ),
+    path(
+        "resumes/<int:resume_pk>/careers/<int:pk>/",
+        ResumeCareerViewSet.as_view(
+            {
+                "get": "retrieve",
+                "put": "update",
+                "patch": "partial_update",
+                "delete": "destroy",
+            }
+        ),
+        name="resume-career-detail",
+    ),
+    path(
+        "resumes/<int:resume_pk>/educations/",
+        ResumeEducationViewSet.as_view({"get": "list", "post": "create"}),
+        name="resume-education-list",
+    ),
+    path(
+        "resumes/<int:resume_pk>/educations/<int:pk>/",
+        ResumeEducationViewSet.as_view(
+            {
+                "get": "retrieve",
+                "put": "update",
+                "patch": "partial_update",
+                "delete": "destroy",
+            }
+        ),
+        name="resume-education-detail",
+    ),
+    path(
+        "resumes/<int:resume_pk>/awards/",
+        ResumeAwardViewSet.as_view({"get": "list", "post": "create"}),
+        name="resume-award-list",
+    ),
+    path(
+        "resumes/<int:resume_pk>/awards/<int:pk>/",
+        ResumeAwardViewSet.as_view(
+            {
+                "get": "retrieve",
+                "put": "update",
+                "patch": "partial_update",
+                "delete": "destroy",
+            }
+        ),
+        name="resume-award-detail",
+    ),
+    path(
+        "resumes/<int:resume_pk>/languages/",
+        ResumeLanguageViewSet.as_view({"get": "list", "post": "create"}),
+        name="resume-language-list",
+    ),
+    path(
+        "resumes/<int:resume_pk>/languages/<int:pk>/",
+        ResumeLanguageViewSet.as_view(
+            {
+                "get": "retrieve",
+                "put": "update",
+                "patch": "partial_update",
+                "delete": "destroy",
+            }
+        ),
+        name="resume-language-detail",
+    ),
+    path(
+        "resumes/<int:resume_pk>/links/",
+        ResumeLinkViewSet.as_view({"get": "list", "post": "create"}),
+        name="resume-link-list",
+    ),
+    path(
+        "resumes/<int:resume_pk>/links/<int:pk>/",
+        ResumeLinkViewSet.as_view(
+            {
+                "get": "retrieve",
+                "put": "update",
+                "patch": "partial_update",
+                "delete": "destroy",
+            }
+        ),
+        name="resume-link-detail",
+    ),
     # User Profile URLs
     path(
         "profile/military-services/",
