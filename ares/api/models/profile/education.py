@@ -40,12 +40,10 @@ class Education(models.Model):
         choices=AttendanceStatus.choices,
         verbose_name="재학 여부",
     )
-    admission_date = models.CharField(
-        max_length=7,
+    admission_date = models.DateField(
         verbose_name="입학일 (YYYY-MM)",
     )
-    graduation_date = models.CharField(
-        max_length=7,
+    graduation_date = models.DateField(
         verbose_name="졸업일 (YYYY-MM)",
         blank=True,
         null=True,
