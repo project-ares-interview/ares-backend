@@ -1,8 +1,9 @@
 from django.conf import settings
 from django.db import models
+from ordered_model.models import OrderedModel
 
 
-class Career(models.Model):
+class Career(OrderedModel):
     class ExperienceType(models.TextChoices):
         NEWCOMER = "newcomer", "신입"
         EXPERIENCED = "experienced", "경력"
@@ -39,6 +40,10 @@ class Career(models.Model):
         blank=True,
     )
     responsibilities = models.TextField(
+        verbose_name="직위/직책",
+        blank=True,
+    )
+    task = models.TextField(
         verbose_name="담당 업무",
         blank=True,
     )
@@ -47,11 +52,11 @@ class Career(models.Model):
         verbose_name="퇴사 사유",
         blank=True,
     )
-    order = models.PositiveIntegerField(verbose_name="정렬 순서")
 
-    class Meta:
-        ordering = ["order"]
-        unique_together = ("user", "order")
+    order_with_respect_to = "user"
+
+    class Meta(OrderedModel.Meta):
+        pass
 
     def __str__(self):
         return f"{self.user.email} - {self.company_name}"
