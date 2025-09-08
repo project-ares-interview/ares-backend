@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from ares.api.models import JobInterest
+from ares.api.models.profile import JobInterest
 
 
 class JobInterestSerializer(serializers.ModelSerializer):

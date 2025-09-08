@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from ares.api.models import Career
+from ares.api.models.profile import Career
 
 
 class CareerSerializer(serializers.ModelSerializer):

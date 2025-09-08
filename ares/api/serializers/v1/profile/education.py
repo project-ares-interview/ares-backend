@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from ares.api.models import Education
+from ares.api.models.profile import Education
 
 
 class EducationSerializer(serializers.ModelSerializer):

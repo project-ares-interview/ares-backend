@@ -16,7 +16,9 @@ class JobInterest(models.Model):
 
     class Meta:
         ordering = ["order"]
-        unique_together = (("user", "job_title"), ("user", "order"))
+        unique_together = ("user", "order")
+        verbose_name = "관심 직무"
+        verbose_name_plural = "관심 직무 목록"
 
     def __str__(self):
         return f"{self.user.email} - {self.job_title}"

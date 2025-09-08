@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from ares.api.models import Patriot
+from ares.api.models.profile import Patriot
 
 
 class PatriotSerializer(serializers.ModelSerializer):
