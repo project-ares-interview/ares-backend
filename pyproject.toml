@@ -9,6 +9,7 @@ dependencies = [
     "django>=5.2.5",
     "django-cors-headers>=4.7.0",
     "django-filter>=25.1",
+    "django-ordered-model>=3.7.4",
     "djangorestframework>=3.16.1",
     "djangorestframework-simplejwt>=5.5.1",
     "markdown>=3.8.2",
