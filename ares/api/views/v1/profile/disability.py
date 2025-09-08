@@ -2,7 +2,7 @@ from django.db.models import Max
 from rest_framework import viewsets
 from rest_framework.permissions import IsAuthenticated
 
-from ares.api.models import Disability
+from ares.api.models.profile import Disability
 from ares.api.serializers.v1.profile.disability import DisabilitySerializer
 
 

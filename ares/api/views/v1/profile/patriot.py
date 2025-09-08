@@ -1,7 +1,7 @@
 from rest_framework import viewsets
 from rest_framework.permissions import IsAuthenticated
 
-from ares.api.models import Patriot
+from ares.api.models.profile import Patriot
 from ares.api.serializers.v1.profile.patriot import PatriotSerializer
 
 

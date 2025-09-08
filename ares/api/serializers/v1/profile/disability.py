@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from ares.api.models import Disability
+from ares.api.models.profile import Disability
 
 
 class DisabilitySerializer(serializers.ModelSerializer):
