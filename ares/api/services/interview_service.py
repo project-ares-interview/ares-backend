@@ -318,27 +318,93 @@ def generate_main_question_ondemand(
     return q
 
 # =========================
-# 3) 꼬리질문 생성
+# 3) 꼬리질문 생성 (하위호환 지원)
 # =========================
 def generate_followups(
-    main_q: str,
-    answer: str,
+    main_q: Optional[str] = None,
+    answer: Optional[str] = None,
     k: int = 3,
-    main_index: int | None = None,
-    meta: dict | None = None,
-    ncs_query: str | None = None
+    main_index: Optional[int] = None,
+    meta: Optional[dict] = None,
+    ncs_query: Optional[str] = None,
+    **legacy_kwargs,  # ← 예전 호출 방식(language, difficulty, ncs_context, based_on_answer, modes 등)
 ) -> List[str]:
+    """
+    하위호환 인자 매핑:
+      - based_on_answer -> answer
+      - ncs_context(list[dict] or list[str]) -> ncs_ctx 문자열로 병합
+      - modes -> 카테고리 힌트(현재는 다양성 확보용으로만 사용)
+      - language/difficulty -> 프롬프트 튜닝 힌트(현재는 강제 규칙은 아님)
+    """
     # k 가드
     if k <= 0:
         return []
     if k > CFG.max_follow_k:
         k = CFG.max_follow_k
 
+    # ---- 하위호환 매핑 ----
+    if answer is None and "based_on_answer" in legacy_kwargs:
+        answer = legacy_kwargs.get("based_on_answer") or ""
+
+    # 예전 코드가 ncs_context(리스트/딕트들)를 직접 넣어줄 때를 지원
+    legacy_ncs_ctx = legacy_kwargs.get("ncs_context")
+    ncs_ctx_from_list = ""
+    if legacy_ncs_ctx:
+        try:
+            # 문자열 리스트
+            if isinstance(legacy_ncs_ctx, list) and all(isinstance(x, str) for x in legacy_ncs_ctx):
+                ncs_ctx_from_list = "\n".join(f"- {x}" for x in legacy_ncs_ctx if x.strip())
+            # 딕트 리스트: {"code","title","desc"} 형태
+            elif isinstance(legacy_ncs_ctx, list) and all(isinstance(x, dict) for x in legacy_ncs_ctx):
+                buf = []
+                for it in legacy_ncs_ctx:
+                    code = (it.get("code") or it.get("ncs_code") or "").strip()
+                    title = (it.get("title") or it.get("ncs_title") or "").strip()
+                    desc = (it.get("desc") or it.get("summary") or it.get("description") or "").strip()
+                    line = " / ".join([x for x in [code, title, desc] if x])
+                    if line:
+                        buf.append(f"- {line}")
+                ncs_ctx_from_list = "\n".join(buf)
+        except Exception:
+            ncs_ctx_from_list = ""
+
+    # modes 힌트(현재는 다양성만 유도)
+    modes_hint = legacy_kwargs.get("modes") or []
+    if isinstance(modes_hint, (list, tuple)):
+        modes_hint = [str(m).strip() for m in modes_hint if str(m).strip()]
+    else:
+        modes_hint = []
+
+    # 언어/난이도 힌트 (필요시 튜닝용으로 사용 가능)
+    lang_hint = (legacy_kwargs.get("language") or "").lower().strip()
+    diff_hint = (legacy_kwargs.get("difficulty") or "").strip()
+
+    # ---- NCS 컨텍스트 조립(신규 + 하위호환 병합) ----
     ncs_query = _resolve_ncs_query(ncs_query, meta)
-    ncs_ctx = _build_ncs_ctx(ncs_query, CFG.ncs_top_follow, CFG.ncs_ctx_max_len)
+    ncs_ctx_from_search = _build_ncs_ctx(ncs_query, CFG.ncs_top_follow, CFG.ncs_ctx_max_len)
+    # 우선순위: 검색 컨텍스트 + (있으면) 호출자가 직접 준 리스트 컨텍스트
+    if ncs_ctx_from_search and ncs_ctx_from_list:
+        ncs_ctx = ncs_ctx_from_search + "\n" + ncs_ctx_from_list
+    else:
+        ncs_ctx = ncs_ctx_from_search or ncs_ctx_from_list
+
+    # 메인 질문 없을 때 방어적 기본값
+    if not main_q:
+        main_q = "이전 주제에 대해 더 깊이 파고들기 위한 추가 질문을 생성해 주세요."
+
+    # 프롬프트 구성
+    sys_prompt = SYS_FOLLOW
+    if lang_hint == "en":
+        # 영어로도 쓸 수 있게 아주 가볍게 전환(선택)
+        sys_prompt = sys_prompt.replace("한국어", "영어")
+
+    user_prompt = _follow_usr(main_q, answer or "", k, meta, ncs_ctx)
+    if modes_hint:
+        user_prompt += "\n[카테고리 힌트]\n- " + ", ".join(modes_hint)
+
     msgs = [
-        {"role": "system", "content": SYS_FOLLOW},
-        {"role": "user", "content": _follow_usr(main_q, answer, k, meta, ncs_ctx)},
+        {"role": "system", "content": sys_prompt},
+        {"role": "user", "content": user_prompt},
     ]
     if CFG.debug_log_prompts:
         try:
@@ -362,9 +428,10 @@ def generate_followups(
     lines = lines[:k]
 
     if main_index is not None:
-        prefix = str(int(main_index))  # 방어적 캐스팅
+        prefix = str(int(main_index))
         lines = [f"{prefix}-{i+1}. {q.strip()}" for i, q in enumerate(lines)]
     return lines
+
 
 # =========================
 # 4) STAR-C 평가 (가중합/등급 포함)

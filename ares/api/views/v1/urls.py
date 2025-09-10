@@ -1,36 +1,40 @@
+# ares/api/views/v1/urls.py
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
-from rest_framework_simplejwt.views import TokenRefreshView
 
 from ares.api.views.v1.cover_letter import CoverLetterViewSet
 from ares.api.views.v1.example import ExampleViewSet
 from ares.api.views.v1.profile import (
-    CareerViewSet,
-    DisabilityViewSet,
-    EducationViewSet,
-    JobInterestViewSet,
-    MilitaryServiceViewSet,
-    PatriotViewSet,
+    CareerViewSet, DisabilityViewSet, EducationViewSet,
+    JobInterestViewSet, MilitaryServiceViewSet, PatriotViewSet,
 )
 from ares.api.views.v1.resume.base import ResumeViewSet
 from ares.api.views.v1.resume import (
-    ResumeAwardViewSet,
-    ResumeCareerViewSet,
-    ResumeEducationViewSet,
-    ResumeLanguageViewSet,
-    ResumeLinkViewSet,
+    ResumeAwardViewSet, ResumeCareerViewSet, ResumeEducationViewSet,
+    ResumeLanguageViewSet, ResumeLinkViewSet,
 )
 from ares.api.views.v1.social import GoogleLogin, GoogleRegisterView
 from ares.api.views.v1.user import UserDetailView, UserRegisterView
-from dj_rest_auth.views import LoginView, LogoutView
+from .. import interview as interview_views
+# from ares.api.views.v1.ping import PingView  # 선택
+
+app_name = "api_v1"
 
 router = DefaultRouter()
 router.register(r"examples", ExampleViewSet, basename="example")
 
 urlpatterns = [
-    # Router URLs
+    # Router 기반
     path("", include(router.urls)),
-    # Cover Letter URLs
+
+    # ----- Interviews (AI-based) -----
+    path("interviews/start/",  interview_views.InterviewStartAPIView.as_view(), name="v1-interview-start"),
+    path("interviews/next/",   interview_views.InterviewNextQuestionAPIView.as_view(), name="v1-interview-next"),
+    path("interviews/answer/", interview_views.InterviewSubmitAnswerAPIView.as_view(), name="v1-interview-answer"),
+    path("interviews/finish/", interview_views.InterviewFinishAPIView.as_view(), name="v1-interview-finish"),
+
+
+    # ----- Cover Letters -----
     path(
         "cover-letters/",
         CoverLetterViewSet.as_view({"get": "list", "post": "create"}),
@@ -38,17 +42,14 @@ urlpatterns = [
     ),
     path(
         "cover-letters/<int:pk>/",
-        CoverLetterViewSet.as_view(
-            {
-                "get": "retrieve",
-                "put": "update",
-                "patch": "partial_update",
-                "delete": "destroy",
-            }
-        ),
+        CoverLetterViewSet.as_view({
+            "get": "retrieve", "put": "update",
+            "patch": "partial_update", "delete": "destroy",
+        }),
         name="cover-letter-detail",
     ),
-    # Resume URLs (Template)
+
+    # ----- Resume (Template) -----
     path(
         "resumes/",
         ResumeViewSet.as_view({"get": "list", "post": "create"}),
@@ -56,17 +57,14 @@ urlpatterns = [
     ),
     path(
         "resumes/<int:pk>/",
-        ResumeViewSet.as_view(
-            {
-                "get": "retrieve",
-                "put": "update",
-                "patch": "partial_update",
-                "delete": "destroy",
-            }
-        ),
+        ResumeViewSet.as_view({
+            "get": "retrieve", "put": "update",
+            "patch": "partial_update", "delete": "destroy",
+        }),
         name="resume-detail",
     ),
-    # Resume Detail URLs (Nested)
+
+    # ----- Resume Nested -----
     path(
         "resumes/<int:resume_pk>/careers/",
         ResumeCareerViewSet.as_view({"get": "list", "post": "create"}),
@@ -74,14 +72,10 @@ urlpatterns = [
     ),
     path(
         "resumes/<int:resume_pk>/careers/<int:pk>/",
-        ResumeCareerViewSet.as_view(
-            {
-                "get": "retrieve",
-                "put": "update",
-                "patch": "partial_update",
-                "delete": "destroy",
-            }
-        ),
+        ResumeCareerViewSet.as_view({
+            "get": "retrieve", "put": "update",
+            "patch": "partial_update", "delete": "destroy",
+        }),
         name="resume-career-detail",
     ),
     path(
@@ -91,14 +85,10 @@ urlpatterns = [
     ),
     path(
         "resumes/<int:resume_pk>/educations/<int:pk>/",
-        ResumeEducationViewSet.as_view(
-            {
-                "get": "retrieve",
-                "put": "update",
-                "patch": "partial_update",
-                "delete": "destroy",
-            }
-        ),
+        ResumeEducationViewSet.as_view({
+            "get": "retrieve", "put": "update",
+            "patch": "partial_update", "delete": "destroy",
+        }),
         name="resume-education-detail",
     ),
     path(
@@ -108,14 +98,10 @@ urlpatterns = [
     ),
     path(
         "resumes/<int:resume_pk>/awards/<int:pk>/",
-        ResumeAwardViewSet.as_view(
-            {
-                "get": "retrieve",
-                "put": "update",
-                "patch": "partial_update",
-                "delete": "destroy",
-            }
-        ),
+        ResumeAwardViewSet.as_view({
+            "get": "retrieve", "put": "update",
+            "patch": "partial_update", "delete": "destroy",
+        }),
         name="resume-award-detail",
     ),
     path(
@@ -125,14 +111,10 @@ urlpatterns = [
     ),
     path(
         "resumes/<int:resume_pk>/languages/<int:pk>/",
-        ResumeLanguageViewSet.as_view(
-            {
-                "get": "retrieve",
-                "put": "update",
-                "patch": "partial_update",
-                "delete": "destroy",
-            }
-        ),
+        ResumeLanguageViewSet.as_view({
+            "get": "retrieve", "put": "update",
+            "patch": "partial_update", "delete": "destroy",
+        }),
         name="resume-language-detail",
     ),
     path(
@@ -142,17 +124,15 @@ urlpatterns = [
     ),
     path(
         "resumes/<int:resume_pk>/links/<int:pk>/",
-        ResumeLinkViewSet.as_view(
-            {
-                "get": "retrieve",
-                "put": "update",
-                "patch": "partial_update",
-                "delete": "destroy",
-            }
-        ),
+        ResumeLinkViewSet.as_view({
+            "get": "retrieve", "put": "update",
+            "patch": "partial_update", "delete": "destroy",
+        }),
         name="resume-link-detail",
     ),
-    # User Profile URLs
+
+
+    # ----- Profile -----
     path(
         "profile/military-services/",
         MilitaryServiceViewSet.as_view({"get": "list", "post": "create"}),
@@ -160,9 +140,10 @@ urlpatterns = [
     ),
     path(
         "profile/military-services/<int:pk>/",
-        MilitaryServiceViewSet.as_view(
-            {"get": "retrieve", "put": "update", "patch": "partial_update", "delete": "destroy"}
-        ),
+        MilitaryServiceViewSet.as_view({
+            "get": "retrieve", "put": "update",
+            "patch": "partial_update", "delete": "destroy",
+        }),
         name="profile-military-service-detail",
     ),
     path(
@@ -172,9 +153,10 @@ urlpatterns = [
     ),
     path(
         "profile/patriots/<int:pk>/",
-        PatriotViewSet.as_view(
-            {"get": "retrieve", "put": "update", "patch": "partial_update", "delete": "destroy"}
-        ),
+        PatriotViewSet.as_view({
+            "get": "retrieve", "put": "update",
+            "patch": "partial_update", "delete": "destroy",
+        }),
         name="profile-patriot-detail",
     ),
     path(
@@ -184,9 +166,10 @@ urlpatterns = [
     ),
     path(
         "profile/disabilities/<int:pk>/",
-        DisabilityViewSet.as_view(
-            {"get": "retrieve", "put": "update", "patch": "partial_update", "delete": "destroy"}
-        ),
+        DisabilityViewSet.as_view({
+            "get": "retrieve", "put": "update",
+            "patch": "partial_update", "delete": "destroy",
+        }),
         name="profile-disability-detail",
     ),
     path(
@@ -196,9 +179,10 @@ urlpatterns = [
     ),
     path(
         "profile/educations/<int:pk>/",
-        EducationViewSet.as_view(
-            {"get": "retrieve", "put": "update", "patch": "partial_update", "delete": "destroy"}
-        ),
+        EducationViewSet.as_view({
+            "get": "retrieve", "put": "update",
+            "patch": "partial_update", "delete": "destroy",
+        }),
         name="profile-education-detail",
     ),
     path(
@@ -208,9 +192,10 @@ urlpatterns = [
     ),
     path(
         "profile/careers/<int:pk>/",
-        CareerViewSet.as_view(
-            {"get": "retrieve", "put": "update", "patch": "partial_update", "delete": "destroy"}
-        ),
+        CareerViewSet.as_view({
+            "get": "retrieve", "put": "update",
+            "patch": "partial_update", "delete": "destroy",
+        }),
         name="profile-career-detail",
     ),
     path(
@@ -220,35 +205,24 @@ urlpatterns = [
     ),
     path(
         "profile/job-interests/<int:pk>/",
-        JobInterestViewSet.as_view(
-            {"get": "retrieve", "put": "update", "patch": "partial_update", "delete": "destroy"}
-        ),
+        JobInterestViewSet.as_view({
+            "get": "retrieve", "put": "update",
+            "patch": "partial_update", "delete": "destroy",
+        }),
         name="profile-job-interest-detail",
     ),
+
+    # ----- User -----
     path("user/", UserDetailView.as_view(), name="user_detail"),
 
-    # Custom Views
+    # ----- Custom Register (필요하면 유지) -----
     path("auth/registration/", UserRegisterView.as_view(), name="rest_register"),
-    path("auth/user/", UserDetailView.as_view(), name="user_detail"),
 
-    # dj-rest-auth Views
-    path("auth/login/", LoginView.as_view(), name="rest_login"),
-    path("auth/logout/", LogoutView.as_view(), name="rest_logout"),
-    path(
-        "auth/token/refresh/",
-        TokenRefreshView.as_view(),
-        name="token_refresh",
-    ),
+    # ----- Social (필요시 유지) -----
+    path("auth/google/", GoogleLogin.as_view(), name="google_login"),
+    path("auth/google/register/", GoogleRegisterView.as_view(), name="google_register"),
 
-    # Social Auth
-    path(
-        "auth/google/",
-        GoogleLogin.as_view(),
-        name="google_login",
-    ),
-    path(
-        "auth/google/register/",
-        GoogleRegisterView.as_view(),
-        name="google_register",
-    ),
+    # (선택) 핑
+    # path("ping", PingView.as_view(), name="ping"),
 ]
+

@@ -21,21 +21,23 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
+# === Debug & Secret ===
+# dotenvx가 .env.development/.env.production을 복호화해 주입함 -> os.getenv로 읽기만 하면 됨
+DEBUG = os.getenv("DJANGO_DEBUG", "1") == "1"
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "")
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
-
-# React Native Client Host and Port
+# === Client (Web/RN) Dev Host ===
 CLIENT_HOST = os.getenv("CLIENT_HOST", "127.0.0.1")
 CLIENT_PORT = os.getenv("CLIENT_PORT", "8081")
 
-ALLOWED_HOSTS: list[str] = []
+# === Allowed Hosts ===
+if DEBUG:
+    ALLOWED_HOSTS: list[str] = ["*", "localhost", "127.0.0.1"]
+else:
+    # 예: ALLOWED_HOSTS=api.example.com,ares.my
+    ALLOWED_HOSTS = [h for h in os.getenv("ALLOWED_HOSTS", "").split(",") if h.strip()]
 
-
-# Application definition
-
+# === Applications ===
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
@@ -44,7 +46,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "django.contrib.sites",
-    # 3rd-party-apps
+    # 3rd-party
     "rest_framework",
     "rest_framework.authtoken",
     "rest_framework_simplejwt",
@@ -55,7 +57,7 @@ INSTALLED_APPS = [
     "allauth.account",
     "allauth.socialaccount",
     "allauth.socialaccount.providers.google",
-    # my-apps
+    # local apps
     "ares.api",
 ]
 
@@ -90,10 +92,7 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "ares.wsgi.application"
 
-
-# Database
-# https://docs.djangoproject.com/en/5.2/ref/settings/#databases
-
+# === Database ===
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.sqlite3",
@@ -101,61 +100,59 @@ DATABASES = {
     }
 }
 
-
-# Password validation
-# https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
-
+# === Password Validation ===
 AUTH_PASSWORD_VALIDATORS = [
-    {
-        "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator",
-    },
-    {
-        "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
-    },
-    {
-        "NAME": "django.contrib.auth.password_validation.CommonPasswordValidator",
-    },
-    {
-        "NAME": "django.contrib.auth.password_validation.NumericPasswordValidator",
-    },
+    {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
+    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
+    {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
+    {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
 
-
-# Internationalization
-# https://docs.djangoproject.com/en/5.2/topics/i18n/
-
-LANGUAGE_CODE = "en-us"
-
-TIME_ZONE = "UTC"
-
+# === i18n / tz ===
+LANGUAGE_CODE = "ko-kr"
+TIME_ZONE = "Asia/Seoul"
 USE_I18N = True
+USE_TZ = True  # DB 저장은 UTC, 표현은 KST 변환
 
-USE_TZ = True
+# === Static / Media ===
+STATIC_URL = "/static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
 
+MEDIA_URL = "/media/"
+MEDIA_ROOT = BASE_DIR / "media"
 
-# Static files (CSS, JavaScript, Images)
-# https://docs.djangoproject.com/en/5.2/howto/static-files/
-
-STATIC_URL = "static/"
-
-# Default primary key field type
-# https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
-
+# === Primary Key ===
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+# === Auth/User ===
 AUTH_USER_MODEL = "api.User"
-
 SITE_ID = 1
 
+# allauth 기본 설정(헤드리스/이메일 로그인)
 ACCOUNT_USER_MODEL_USERNAME_FIELD = None
-ACCOUNT_EMAIL_REQUIRED = True
+ACCOUNT_SIGNUP_FIELDS = ["email*", "password1*", "password2*"]
 ACCOUNT_UNIQUE_EMAIL = True
-ACCOUNT_USERNAME_REQUIRED = False
-ACCOUNT_AUTHENTICATION_METHOD = "email"
+ACCOUNT_LOGIN_METHODS = {"email"}
 ACCOUNT_EMAIL_VERIFICATION = "none"
 
+# Social Login Adapter
 SOCIALACCOUNT_ADAPTER = "ares.api.adapter.CustomSocialAccountAdapter"
 
+# (선택) 구글 프로바이더 상세
+SOCIALACCOUNT_PROVIDERS = {
+    "google": {
+        "SCOPE": ["email", "profile"],
+        "AUTH_PARAMS": {"access_type": "offline"},
+    }
+}
+
+# allauth 인증 백엔드(필수)
+AUTHENTICATION_BACKENDS = [
+    "django.contrib.auth.backends.ModelBackend",
+    "allauth.account.auth_backends.AuthenticationBackend",
+]
+
+# === DRF / Auth ===
 REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
     "DEFAULT_AUTHENTICATION_CLASSES": ("dj_rest_auth.jwt_auth.JWTCookieAuthentication",),
@@ -166,8 +163,10 @@ REST_AUTH = {
     "JWT_AUTH_HTTPONLY": True,
     "JWT_AUTH_COOKIE": "access",
     "JWT_AUTH_REFRESH_COOKIE": "refresh",
-    "JWT_AUTH_SAMESITE": "Lax" if not DEBUG else "None",
-    "JWT_AUTH_SECURE": True if DEBUG else False,
+    # RN/Web 혼용 시 cross-site 가능 -> None 권장
+    "JWT_AUTH_SAMESITE": "None",
+    # 운영(HTTPS)에서만 Secure, 개발은 False
+    "JWT_AUTH_SECURE": not DEBUG,
     "USER_DETAILS_SERIALIZER": "ares.api.serializers.v1.user.UserDetailSerializer",
 }
 
@@ -178,16 +177,102 @@ SIMPLE_JWT = {
     "BLACKLIST_AFTER_ROTATION": True,
 }
 
+# === CORS / CSRF ===
+CORS_ALLOW_CREDENTIALS = True
+
+# 기본 허용 오리진
 CORS_ALLOWED_ORIGINS = [
     f"http://localhost:{CLIENT_PORT}",
     f"http://{CLIENT_HOST}:{CLIENT_PORT}",
+    "http://127.0.0.1:3000",
+    "http://10.0.2.2:3000",  # Android emulator -> host
 ]
 
-if DEBUG:
-    CSRF_TRUSTED_ORIGINS = [
-        f"http://localhost:{CLIENT_PORT}",
-        f"http://{CLIENT_HOST}:{CLIENT_PORT}",
-    ]
+# 추가 오리진/CSRF는 쉼표구분 env로 확장
+_extra_cors = [o for o in os.getenv("EXTRA_CORS_ORIGINS", "").split(",") if o.strip()]
+CORS_ALLOWED_ORIGINS.extend(_extra_cors)
 
-CORS_ALLOW_CREDENTIALS = True
+CSRF_TRUSTED_ORIGINS = [
+    f"http://localhost:{CLIENT_PORT}",
+    f"http://{CLIENT_HOST}:{CLIENT_PORT}",
+]
+_extra_csrf = [o for o in os.getenv("EXTRA_CSRF_TRUSTED", "").split(",") if o.strip()]
+CSRF_TRUSTED_ORIGINS.extend(_extra_csrf)
 
+# 쿠키 일관성(교차사이트 허용 + 개발/운영 분기)
+SESSION_COOKIE_SAMESITE = "None"
+CSRF_COOKIE_SAMESITE = "None"
+SESSION_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SECURE = not DEBUG
+
+# 프록시(nginx, cloud) 뒤에서 HTTPS 종결 시
+if not DEBUG and os.getenv("BEHIND_PROXY", "0") == "1":
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
+# (선택) 운영 보안 헤더
+if not DEBUG:
+    SECURE_HSTS_SECONDS = int(os.getenv("SECURE_HSTS_SECONDS", "0"))
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = os.getenv("SECURE_HSTS_INCLUDE_SUBDOMAINS", "0") == "1"
+    SECURE_HSTS_PRELOAD = os.getenv("SECURE_HSTS_PRELOAD", "0") == "1"
+    SECURE_SSL_REDIRECT = os.getenv("SECURE_SSL_REDIRECT", "1") == "1"
+
+# ===== ARES / Azure / OpenAI / DI / Search / Speech / Storage / NCS =====
+# dotenvx가 이미 복호화+주입하므로 단순 os.getenv 로 읽으면 됨
+
+# OpenAI (Azure)
+AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT", "")
+AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY", "")
+AZURE_OPENAI_API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2024-08-01-preview")
+AZURE_OPENAI_DEPLOYMENT_NAME = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "")
+AZURE_OPENAI_EMBEDDING_DEPLOYMENT = os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT", "")
+
+# Azure Document Intelligence (OCR)
+AZURE_DI_ENDPOINT = os.getenv("AZURE_DI_ENDPOINT", "")
+AZURE_DI_KEY = os.getenv("AZURE_DI_KEY", "")
+
+# Azure Speech
+SPEECH_KEY = os.getenv("SPEECH_KEY", "")
+SPEECH_REGION = os.getenv("SPEECH_REGION", "")
+SPEECH_DEFAULT_VOICE = os.getenv("SPEECH_DEFAULT_VOICE", "ko-KR-HyunsuNeural")
+
+# Azure Search (NCS 인덱스)
+AZURE_SEARCH_ENDPOINT = os.getenv("AZURE_SEARCH_ENDPOINT", "")
+AZURE_SEARCH_KEY = os.getenv("AZURE_SEARCH_KEY", "")
+NCS_INDEX = os.getenv("NCS_INDEX", "ncs")
+NCS_VECTOR_FIELD = os.getenv("NCS_VECTOR_FIELD", "vector")
+
+# (선택) Blob Storage
+STORAGE_ACCOUNT_URL = os.getenv("STORAGE_ACCOUNT_URL", "")
+STORAGE_KEY = os.getenv("STORAGE_KEY", "")
+NCS_CONTAINER = os.getenv("NCS_CONTAINER", "")
+
+# === Logging ===
+LOG_ROOT = os.getenv("LOG_ROOT", str(BASE_DIR / "logs"))
+os.makedirs(LOG_ROOT, exist_ok=True)
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "standard": {"format": "[%(asctime)s] %(levelname)s %(name)s: %(message)s"},
+        "verbose": {
+            "format": "%(asctime)s [%(levelname)s] %(name)s (%(filename)s:%(lineno)d) %(message)s",
+        },
+    },
+    "handlers": {
+        "console": {"class": "logging.StreamHandler", "formatter": "standard"},
+        "file": {
+            "class": "logging.handlers.TimedRotatingFileHandler",
+            "formatter": "verbose",
+            "filename": os.path.join(LOG_ROOT, "app.log"),
+            "when": "midnight",
+            "backupCount": 14,
+            "encoding": "utf-8",
+        },
+    },
+    "loggers": {
+        "": {"handlers": ["console", "file"], "level": LOG_LEVEL},
+        "django": {"handlers": ["console"], "level": "INFO", "propagate": False},
+    },
+}
