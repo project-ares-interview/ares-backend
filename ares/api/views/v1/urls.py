@@ -20,6 +20,8 @@ from ares.api.views.v1.resume import (
     ResumeLanguageViewSet,
     ResumeLinkViewSet,
 )
+from ares.api.views.v1.interview import InterviewStartAPIView, InterviewNextQuestionAPIView, InterviewSubmitAnswerAPIView, InterviewFinishAPIView
+
 from ares.api.views.v1.social import GoogleLogin, GoogleRegisterView
 from ares.api.views.v1.user import UserDetailView, UserRegisterView
 from dj_rest_auth.views import LoginView, LogoutView
@@ -32,7 +34,14 @@ router.register(r"examples", ExampleViewSet, basename="example")
 urlpatterns = [
     # Router URLs
     path("", include(router.urls)),
-    # Cover Letter URLs
+
+    # ----- Interviews (AI-based) -----
+    path("interviews/start/",  InterviewStartAPIView.as_view(), name="v1-interview-start"),
+    path("interviews/next/",   InterviewNextQuestionAPIView.as_view(), name="v1-interview-next"),
+    path("interviews/answer/", InterviewSubmitAnswerAPIView.as_view(), name="v1-interview-answer"),
+    path("interviews/finish/", InterviewFinishAPIView.as_view(), name="v1-interview-finish"),
+
+    # ----- Cover Letters Urls -----
     path(
         "cover-letters/",
         CoverLetterViewSet.as_view({"get": "list", "post": "create"}),
