@@ -1,0 +1,762 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>면접 점수 분석기</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            font-weight: 300;
+        }
+
+        .header p {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 2fr;
+            gap: 30px;
+            padding: 30px;
+        }
+
+        .input-section {
+            background: #f8f9fa;
+            padding: 25px;
+            border-radius: 15px;
+            border: 2px solid #e9ecef;
+        }
+
+        .input-section h2 {
+            color: #2c3e50;
+            margin-bottom: 20px;
+            font-size: 1.5em;
+            display: flex;
+            align-items: center;
+        }
+
+        .input-section h2::before {
+            content: "📝";
+            margin-right: 10px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #495057;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #dee2e6;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+
+        .form-group input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        /* 데모그래픽 섹션 */
+        .demographic-section {
+            background: #e8f4fd;
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            border: 2px solid #b8daff;
+        }
+
+        .demographic-section h3 {
+            color: #2c3e50;
+            margin-bottom: 15px;
+            font-size: 1.2em;
+            display: flex;
+            align-items: center;
+        }
+
+        .demographic-section h3::before {
+            content: "👥";
+            margin-right: 8px;
+        }
+
+        .checkbox-group {
+            margin-bottom: 15px;
+        }
+
+        .checkbox-group h4 {
+            color: #495057;
+            margin-bottom: 10px;
+            font-size: 1em;
+        }
+
+        .checkbox-options {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .checkbox-item {
+            display: flex;
+            align-items: center;
+            background: white;
+            padding: 8px 12px;
+            border-radius: 6px;
+            border: 1px solid #dee2e6;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-size: 0.9em;
+        }
+
+        .checkbox-item:hover {
+            background: #f8f9fa;
+            border-color: #667eea;
+        }
+
+        .checkbox-item input[type="radio"] {
+            width: auto;
+            margin-right: 6px;
+            cursor: pointer;
+        }
+
+        .checkbox-item.checked {
+            background: #667eea;
+            color: white;
+            border-color: #5a6fd8;
+        }
+
+        .analyze-btn {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 18px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        .analyze-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+        }
+
+        .results-section {
+            background: white;
+        }
+
+        .results-section h2 {
+            color: #2c3e50;
+            margin-bottom: 20px;
+            font-size: 1.5em;
+            display: flex;
+            align-items: center;
+        }
+
+        .results-section h2::before {
+            content: "📊";
+            margin-right: 10px;
+        }
+
+        /* 차트 컨트롤 */
+        .chart-controls {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        .chart-btn {
+            padding: 8px 16px;
+            background: #f8f9fa;
+            border: 2px solid #dee2e6;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-size: 0.9em;
+            color: #495057;
+        }
+
+        .chart-btn.active {
+            background: #667eea;
+            color: white;
+            border-color: #5a6fd8;
+        }
+
+        .chart-btn:hover {
+            border-color: #667eea;
+        }
+
+        .chart-container {
+            position: relative;
+            height: 400px;
+            margin-bottom: 30px;
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 20px;
+        }
+
+        .percentile-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+
+        .percentile-card {
+            background: linear-gradient(135deg, #36d1dc 0%, #5b86e5 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 12px;
+            text-align: center;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            position: relative;
+        }
+
+        .percentile-card h3 {
+            font-size: 1.1em;
+            margin-bottom: 10px;
+            opacity: 0.9;
+        }
+
+        .percentile-card .score {
+            font-size: 2em;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .percentile-card .percentile {
+            font-size: 1.2em;
+            opacity: 0.8;
+            margin-bottom: 10px;
+        }
+
+        .percentile-card .filtered-info {
+            font-size: 0.9em;
+            opacity: 0.8;
+            border-top: 1px solid rgba(255,255,255,0.3);
+            padding-top: 10px;
+            margin-top: 10px;
+        }
+
+        .stats-section {
+            background: #f8f9fa;
+            padding: 25px;
+            margin: 30px;
+            border-radius: 15px;
+            border-top: 4px solid #667eea;
+        }
+
+        .stats-section h2 {
+            color: #2c3e50;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+        }
+
+        .stats-section h2::before {
+            content: "📈";
+            margin-right: 10px;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+        }
+
+        .stat-item {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            border-left: 4px solid #667eea;
+        }
+
+        .stat-item h3 {
+            color: #2c3e50;
+            margin-bottom: 15px;
+            font-size: 1.2em;
+        }
+
+        .stat-details {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            font-size: 0.9em;
+        }
+
+        .stat-details span {
+            padding: 5px 0;
+            color: #6c757d;
+        }
+
+        .stat-details strong {
+            color: #2c3e50;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #6c757d;
+        }
+
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            border: 1px solid #f5c6cb;
+        }
+
+        @media (max-width: 768px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+            
+            .header h1 {
+                font-size: 2em;
+            }
+            
+            .percentile-cards {
+                grid-template-columns: 1fr;
+            }
+
+            .checkbox-options {
+                flex-direction: column;
+            }
+
+            .chart-controls {
+                justify-content: flex-start;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>면접 점수 분석기</h1>
+            <p>개인 점수를 입력하고 전체 분포에서의 위치를 확인하세요</p>
+        </div>
+
+        <div class="main-content">
+            <div class="input-section">
+                <h2>점수 입력</h2>
+                <form id="scoreForm">
+                    <div class="form-group">
+                        <label for="confidence_score">자신감 점수 (0-100)</label>
+                        <input type="number" id="confidence_score" name="confidence_score" 
+                               min="0" max="100" step="0.1" placeholder="예: 75.5">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="fluency_score">유창성 점수 (0-100)</label>
+                        <input type="number" id="fluency_score" name="fluency_score" 
+                               min="0" max="100" step="0.1" placeholder="예: 82.3">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="stability_score">안정성 점수 (0-100)</label>
+                        <input type="number" id="stability_score" name="stability_score" 
+                               min="0" max="100" step="0.1" placeholder="예: 68.7">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="clarity_score">명료성 점수 (0-100)</label>
+                        <input type="number" id="clarity_score" name="clarity_score" 
+                               min="0" max="100" step="0.1" placeholder="예: 79.2">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="overall_score">종합 점수 (0-100)</label>
+                        <input type="number" id="overall_score" name="overall_score" 
+                               min="0" max="100" step="0.1" placeholder="예: 76.4">
+                    </div>
+
+                    <!-- 데모그래픽 필터 섹션 -->
+                    <div class="demographic-section">
+                        <h3>비교 그룹 선택 (선택사항)</h3>
+                        
+                        {% if demo_options.gender %}
+                        <div class="checkbox-group">
+                            <h4>성별</h4>
+                            <div class="checkbox-options">
+                                {% for option in demo_options.gender %}
+                                <div class="checkbox-item">
+                                    <input type="radio" name="gender" value="{{ option }}" id="gender_{{ option }}">
+                                    <label for="gender_{{ option }}">{{ option }}</label>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endif %}
+
+                        {% if demo_options.ageRange %}
+                        <div class="checkbox-group">
+                            <h4>연령대</h4>
+                            <div class="checkbox-options">
+                                {% for option in demo_options.ageRange %}
+                                <div class="checkbox-item">
+                                    <input type="radio" name="ageRange" value="{{ option }}" id="age_{{ option }}">
+                                    <label for="age_{{ option }}">{{ option }}</label>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endif %}
+
+                        {% if demo_options.occupation %}
+                        <div class="checkbox-group">
+                            <h4>직군</h4>
+                            <div class="checkbox-options">
+                                {% for option in demo_options.occupation %}
+                                <div class="checkbox-item">
+                                    <input type="radio" name="occupation" value="{{ option }}" id="occ_{{ option }}">
+                                    <label for="occ_{{ option }}">{{ option }}</label>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endif %}
+                    </div>
+                    
+                    <button type="submit" class="analyze-btn">분석하기</button>
+                </form>
+            </div>
+
+            <div class="results-section">
+                <h2>분석 결과</h2>
+                <div id="results">
+                    <div class="loading">
+                        점수를 입력하고 분석하기 버튼을 눌러주세요.
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="stats-section">
+            <h2>전체 데이터 통계</h2>
+            <div class="stats-grid">
+                {% for score_type, stats in stats.items() %}
+                <div class="stat-item">
+                    <h3>{{ stats.name }}</h3>
+                    <div class="stat-details">
+                        <span><strong>총 데이터:</strong> {{ stats.count }}개</span>
+                        <span><strong>평균:</strong> {{ stats.mean }}점</span>
+                        <span><strong>표준편차:</strong> {{ stats.std }}점</span>
+                        <span><strong>최솟값:</strong> {{ stats.min }}점</span>
+                        <span><strong>최댓값:</strong> {{ stats.max }}점</span>
+                        <span><strong>상위 25%:</strong> {{ stats.percentiles['75'] }}점</span>
+                        <span><strong>중간값:</strong> {{ stats.percentiles['50'] }}점</span>
+                        <span><strong>상위 10%:</strong> {{ stats.percentiles['90'] }}점</span>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentChart = null;
+        let currentResults = null;
+        let currentScoreType = null;
+        
+        // 체크박스 스타일링
+        document.addEventListener('DOMContentLoaded', function() {
+            // 라디오 버튼 체크 시 시각적 효과
+            const checkboxItems = document.querySelectorAll('.checkbox-item');
+            checkboxItems.forEach(item => {
+                const input = item.querySelector('input');
+                input.addEventListener('change', function() {
+                    // 같은 그룹의 다른 체크박스들 스타일 제거
+                    const groupName = this.name;
+                    document.querySelectorAll(`input[name="${groupName}"]`).forEach(other => {
+                        other.closest('.checkbox-item').classList.remove('checked');
+                    });
+                    
+                    // 현재 체크박스 스타일 적용
+                    if (this.checked) {
+                        item.classList.add('checked');
+                    }
+                });
+            });
+        });
+        
+        document.getElementById('scoreForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            // 입력된 점수들 수집
+            const formData = new FormData(this);
+            const scores = {};
+            const demographics = {};
+            
+            for (let [key, value] of formData.entries()) {
+                if (['confidence_score', 'fluency_score', 'stability_score', 'clarity_score', 'overall_score'].includes(key)) {
+                    if (value !== '') {
+                        scores[key] = parseFloat(value);
+                    }
+                } else if (['gender', 'ageRange', 'occupation'].includes(key)) {
+                    if (value !== '') {
+                        demographics[key] = value;
+                    }
+                }
+            }
+            
+            if (Object.keys(scores).length === 0) {
+                showError('최소 하나의 점수를 입력해주세요.');
+                return;
+            }
+            
+            // 데모그래픽 정보를 점수 데이터에 합치기
+            const analysisData = { ...scores, ...demographics };
+            
+            // 로딩 표시
+            document.getElementById('results').innerHTML = '<div class="loading">분석 중...</div>';
+            
+            try {
+                const response = await fetch('/api/analyze', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(analysisData)
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || '서버 오류');
+                }
+                
+                const results = await response.json();
+                currentResults = results;
+                displayResults(results);
+                
+            } catch (error) {
+                showError('분석 중 오류가 발생했습니다: ' + error.message);
+            }
+        });
+        
+        function displayResults(results) {
+            const resultsDiv = document.getElementById('results');
+            
+            // 백분위 카드들 생성
+            let cardsHtml = '<div class="percentile-cards">';
+            for (const [scoreType, data] of Object.entries(results)) {
+                const overallPercentileText = `상위 ${(100 - data.overall_percentile).toFixed(1)}%`;
+                
+                let filteredInfo = '';
+                if (data.filtered_percentile !== undefined && data.filters) {
+                    const filterTexts = [];
+                    if (data.filters.gender) filterTexts.push(`성별: ${data.filters.gender}`);
+                    if (data.filters.ageRange) filterTexts.push(`연령대: ${data.filters.ageRange}`);
+                    if (data.filters.occupation) filterTexts.push(`직군: ${data.filters.occupation}`);
+                    
+                    const filteredPercentileText = `상위 ${(100 - data.filtered_percentile).toFixed(1)}%`;
+                    filteredInfo = `
+                        <div class="filtered-info">
+                            ${filterTexts.join(', ')} 중<br>
+                            <strong>${filteredPercentileText}</strong>
+                        </div>
+                    `;
+                }
+                    
+                cardsHtml += `
+                    <div class="percentile-card">
+                        <h3>${data.name}</h3>
+                        <div class="score">${data.score}점</div>
+                        <div class="percentile">전체 ${overallPercentileText}</div>
+                        ${filteredInfo}
+                    </div>
+                `;
+            }
+            cardsHtml += '</div>';
+            
+            // 차트 컨트롤 버튼들 생성
+            let chartControlsHtml = '<div class="chart-controls">';
+            let firstType = null;
+            for (const [scoreType, data] of Object.entries(results)) {
+                if (!firstType) firstType = scoreType;
+                chartControlsHtml += `
+                    <button class="chart-btn ${scoreType === firstType ? 'active' : ''}" 
+                            onclick="switchChart('${scoreType}')">
+                        ${data.name}
+                    </button>
+                `;
+            }
+            chartControlsHtml += '</div>';
+            
+            // 차트 컨테이너 생성
+            const chartHtml = `
+                <div class="chart-container">
+                    <canvas id="distributionChart"></canvas>
+                </div>
+            `;
+            
+            resultsDiv.innerHTML = chartControlsHtml + cardsHtml + chartHtml;
+            
+            // 첫 번째 결과로 차트 그리기
+            if (firstType) {
+                currentScoreType = firstType;
+                drawChart(results[firstType]);
+            }
+        }
+        
+        function switchChart(scoreType) {
+            if (!currentResults || !currentResults[scoreType]) return;
+            
+            // 버튼 활성화 상태 변경
+            document.querySelectorAll('.chart-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            event.target.classList.add('active');
+            
+            // 차트 업데이트
+            currentScoreType = scoreType;
+            drawChart(currentResults[scoreType]);
+        }
+        
+        function drawChart(data) {
+            const ctx = document.getElementById('distributionChart').getContext('2d');
+            
+            if (currentChart) {
+                currentChart.destroy();
+            }
+            
+            // 현재 표시할 분포 데이터 선택 (필터된 것이 있으면 우선, 없으면 전체)
+            const distribution = data.filtered_distribution || data.overall_distribution;
+            const userScore = data.score;
+            const isFiltered = data.filtered_distribution !== undefined;
+            
+            // 사용자 점수가 속하는 구간 찾기
+            let userBinIndex = -1;
+            for (let i = 0; i < distribution.bins.length; i++) {
+                const binStart = i === 0 ? 0 : distribution.bins[i] - 2.5;
+                const binEnd = distribution.bins[i] + 2.5;
+                if (userScore >= binStart && userScore < binEnd) {
+                    userBinIndex = i;
+                    break;
+                }
+            }
+            
+            // 배경색 설정 (사용자 점수 구간은 다른 색으로)
+            const backgroundColors = distribution.bins.map((_, index) => 
+                index === userBinIndex ? 'rgba(255, 99, 132, 0.8)' : 'rgba(54, 162, 235, 0.6)'
+            );
+            
+            // 차트 제목 설정
+            let chartTitle = `${data.name} 점수 분포`;
+            if (isFiltered && data.filters) {
+                const filterTexts = [];
+                if (data.filters.gender) filterTexts.push(data.filters.gender);
+                if (data.filters.ageRange) filterTexts.push(data.filters.ageRange);
+                if (data.filters.occupation) filterTexts.push(data.filters.occupation);
+                chartTitle += ` (${filterTexts.join(', ')} 기준)`;
+            } else {
+                chartTitle += ' (전체 기준)';
+            }
+            chartTitle += ' - 빨간색: 당신의 점수 구간';
+            
+            currentChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: distribution.bins.map(bin => `${bin.toFixed(0)}`),
+                    datasets: [{
+                        label: '빈도',
+                        data: distribution.counts,
+                        backgroundColor: backgroundColors,
+                        borderColor: distribution.bins.map((_, index) => 
+                            index === userBinIndex ? 'rgba(255, 99, 132, 1)' : 'rgba(54, 162, 235, 1)'
+                        ),
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: chartTitle,
+                            font: {
+                                size: 14,
+                                weight: 'bold'
+                            }
+                        },
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: '빈도 (명)'
+                            }
+                        },
+                        x: {
+                            title: {
+                                display: true,
+                                text: '점수'
+                            }
+                        }
+                    },
+                    animation: {
+                        duration: 1500,
+                        easing: 'easeInOutQuart'
+                    }
+                }
+            });
+        }
+        
+        function showError(message) {
+            document.getElementById('results').innerHTML = 
+                `<div class="error">${message}</div>`;
+        }
+    </script>
+</body>
+</html>
