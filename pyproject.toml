@@ -5,6 +5,10 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.11.9"
 dependencies = [
+    "azure-ai-documentintelligence>=1.0.2",
+    "azure-cognitiveservices-speech>=1.45.0",
+    "azure-search-documents>=11.5.3",
+    "azure-storage-blob>=12.26.0",
     "dj-rest-auth[with-social]>=7.0.1",
     "django>=5.2.5",
     "django-cors-headers>=4.7.0",
@@ -12,9 +16,17 @@ dependencies = [
     "django-ordered-model>=3.7.4",
     "djangorestframework>=3.16.1",
     "djangorestframework-simplejwt>=5.5.1",
+    "gradio>=5.44.1",
     "markdown>=3.8.2",
     "numpy>=2.3.3",
+    "openai>=1.107.0",
     "pandas>=2.3.2",
+    "pdfplumber>=0.11.7",
+    "pyarrow>=21.0.0",
+    "pypdf>=6.0.0",
+    "python-docs>=0.1.0",
+    "requests>=2.32.5",
+    "tqdm>=4.67.1",
 ]
 
 [tool.ruff]
