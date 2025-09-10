@@ -24,6 +24,8 @@ from ares.api.views.v1.social import GoogleLogin, GoogleRegisterView
 from ares.api.views.v1.user import UserDetailView, UserRegisterView
 from dj_rest_auth.views import LoginView, LogoutView
 
+from ares.api.views.v1.analyze import AnalyzeView
+
 router = DefaultRouter()
 router.register(r"examples", ExampleViewSet, basename="example")
 
@@ -226,6 +228,9 @@ urlpatterns = [
         name="profile-job-interest-detail",
     ),
     path("user/", UserDetailView.as_view(), name="user_detail"),
+
+    #
+    path("analyze/", AnalyzeView.as_view(), name="analyze"),
 
     # Custom Views
     path("auth/registration/", UserRegisterView.as_view(), name="rest_register"),
