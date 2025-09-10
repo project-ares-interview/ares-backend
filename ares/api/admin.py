@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 
-from ares.api.models import User
+from ares.api.models import User, InterviewSession, InterviewTurn   # ✅ import 추가
 
 
 @admin.register(User)
@@ -38,3 +38,20 @@ class UserAdmin(BaseUserAdmin):
             },
         ),
     )
+
+
+# === Interview Models 등록 ===
+@admin.register(InterviewSession)
+class InterviewSessionAdmin(admin.ModelAdmin):
+    list_display = ("id", "user", "status", "started_at", "finished_at")
+    search_fields = ("id", "report_id", "meta")
+    list_filter = ("status",)
+    ordering = ("-started_at",)
+
+
+@admin.register(InterviewTurn)
+class InterviewTurnAdmin(admin.ModelAdmin):
+    list_display = ("id", "session", "turn_index", "role", "created_at")
+    search_fields = ("session__id", "question", "answer")
+    list_filter = ("role",)
+    ordering = ("session", "turn_index")
