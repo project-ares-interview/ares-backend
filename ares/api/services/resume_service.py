@@ -6,6 +6,8 @@ import json, argparse, sys
 
 from ares.api.utils.ai_utils import chat
 from ares.api.utils.common_utils import get_logger, chunk_text
+from ares.api.utils.search_utils import search_ncs_hybrid, format_ncs_context
+from ares.api.services.ncs_service import summarize_top_ncs
 
 _log = get_logger("resume")
 
@@ -13,6 +15,7 @@ __all__ = [
     "analyze_resume_or_cover",
     "compare_documents",
     "analyze_research_alignment",
+    "analyze_all",
 ]
 
 @dataclass
@@ -33,8 +36,8 @@ class GenConfig:
     t_align: float = 0.3
 
     # 안전 가드
-    max_docs_compare: int = 6     # compare 시 최대 문서 수
-    max_chars_per_doc: int = 8000 # compare 입력 per-doc max
+    max_docs_compare: int = 6
+    max_chars_per_doc: int = 8000
     max_jd_chars: int = 8000
     max_resume_chars: int = 9000
     max_research_chars: int = 6000
@@ -45,7 +48,7 @@ CFG = GenConfig()
 
 def _safe_chat(msgs: List[Dict[str,str]], temperature: float, max_tokens: int, default: str="") -> str:
     try:
-        out = chat(msgs, temperature=temperature, max_tokens=max_tokens)
+        out = chat(messages=msgs, temperature=temperature, max_tokens=max_tokens)
         return out or default
     except Exception as e:
         _log.warning(f"LLM 호출 실패: {e}")
@@ -54,14 +57,14 @@ def _safe_chat(msgs: List[Dict[str,str]], temperature: float, max_tokens: int, d
 def _inject_company_ctx(prompt: str, meta: Dict[str, Any] | None) -> str:
     if not meta: return prompt
     def _s(x): return (x or "").strip()
-    comp = _s(meta.get("company",""))
-    div  = _s(meta.get("division",""))
-    role = _s(meta.get("role",""))
-    loc  = _s(meta.get("location",""))
-    kpis = ", ".join([_s(x) for x in meta.get("jd_kpis",[]) if _s(x)])[:200]
-    skills = ", ".join([_s(x) for x in meta.get("skills",[]) if _s(x)])[:200]
-    ctx = (f"[회사 컨텍스트]\n"
-           f"- 회사: {comp or '미상'} | 부서/직무: {div or '-'} / {role or '-'} | 근무지: {loc or '-'}\n"
+    comp = _s(meta.get("name", ""))
+    div = _s(meta.get("department", ""))
+    role = _s(meta.get("job_title", ""))
+    loc = _s(meta.get("location", ""))
+    kpis = ", ".join([_s(x) for x in meta.get("kpi", []) if _s(x)])[:200]
+    skills = ", ".join([_s(x) for x in meta.get("requirements", []) if _s(x)])[:200]
+    ctx = (f"[회사 컨텍스트]\n" 
+           f"- 회사: {comp or '미상'} | 부서/직무: {div or '-'} / {role or '-'} | 근무지: {loc or '-'}\n" 
            f"- KPI: {kpis or '-'} | 스킬: {skills or '-'}\n\n")
     return ctx + prompt
 
@@ -90,11 +93,68 @@ def _dbg(title: str, msgs: List[Dict[str, str]]):
         pass
 
 def _label_section(i: int, total: int, content: str) -> str:
-    """청크별 결과를 헤더로 구분해 병합."""
     h = f"### [분할 {i}/{total}]\n"
     return h + (content.strip() if content else "")
 
+def _build_ncs_report(meta: Dict[str, Any] | None, jd_ctx: str, top: int = 6) -> str:
+    try:
+        job_title = ((meta or {}).get("job_title") or "").strip() or "설비 관리"
+        jd_snip = (jd_ctx or "")[:4000]
+
+        agg = summarize_top_ncs(job_title, jd_snip, top=top) or []
+        hits = search_ncs_hybrid(f"{job_title}\n{jd_snip}", top=top)
+        ctx_lines = format_ncs_context(hits, max_len=1000)
+
+        if not agg and not ctx_lines: return ""
+
+        lines = [f"## 🧩 NCS 요약 (Top {top})", f"- 질의: `{job_title}`", ""]
+        for i, it in enumerate(agg, 1):
+            title = (it.get("ability_name") or it.get("ability_code") or f"Ability-{i}")
+            lines.append(f"**{i}. {title}**")
+            els = it.get("elements") or []
+            if els:
+                lines.append("  - 요소: " + ", ".join(els[:5]))
+            samples = it.get("criteria_samples") or []
+            for s in samples[:3]:
+                lines.append(f"  - 기준: {s}")
+
+        if ctx_lines:
+            lines.append("<details><summary>NCS 컨텍스트(원문 일부)</summary>\n\n")
+            lines.append(ctx_lines)
+            lines.append("\n</details>\n")
+
+        return "\n".join(lines).strip()
+    except Exception as e:
+        _log.warning(f"NCS 요약 생성 중 오류 발생: {e}")
+        return "NCS 요약 생성 중 오류가 발생했습니다."
+
 # ---------- 공개 API ----------
+def analyze_all(jd_text: str, resume_text: str, research_text: str, company_meta: Dict[str, Any]) -> Dict[str, str]:
+    """
+    JD, 이력서, 리서치 자료를 바탕으로 4가지 종합 분석을 개별 수행하여 상세 결과를 반환합니다.
+    """
+    # 1. 심층 분석 (이력서/자소서 기준)
+    deep_out = analyze_resume_or_cover(resume_text, jd_text=jd_text, meta=company_meta)
+
+    # 2. 교차 분석 (JD와 이력서 비교)
+    named_texts = {"JD": jd_text, "이력서": resume_text}
+    cmp_out = compare_documents(named_texts, meta=company_meta)
+
+    # 3. 정합성 점검 (리서치 자료가 있을 경우)
+    aln_out = ""
+    if (research_text or "").strip():
+        aln_out = analyze_research_alignment(jd_text, resume_text, research_text=research_text, meta=company_meta)
+
+    # 4. NCS 요약
+    ncs_out = _build_ncs_report(company_meta, jd_text, top=6)
+
+    return {
+        "심층분석": deep_out,
+        "교차분석": cmp_out,
+        "정합성점검": aln_out,
+        "NCS요약": ncs_out,
+    }
+
 def analyze_resume_or_cover(text: str, jd_text: str = "", meta: Dict[str, Any] | None = None) -> str:
     text = (text or "").strip()
     jd_text = (jd_text or "").strip()
@@ -137,7 +197,6 @@ def compare_documents(named_texts: Dict[str, str], meta: Dict[str, Any] | None =
     if not named_texts:
         return "비교할 문서가 없습니다. 최소 1개 이상의 문서를 제공해주세요."
 
-    # 입력 문서 수/길이 가드
     items = list(named_texts.items())[:CFG.max_docs_compare]
     pairs = [f"[{k}]\n{(v or '')[:CFG.max_chars_per_doc]}" for k, v in items]
     joined = "\n\n".join(pairs)
@@ -163,12 +222,6 @@ def analyze_research_alignment(
     research_text: str = "",
     meta: Dict[str, Any] | None = None
 ) -> str:
-    """
-    입력: JD 본문, 지원서 합본, (선택) 리서치 본문
-    출력: JD 요구 vs 지원서 주장 vs (선택) 리서치 팩트의 정합성/리스크/보완 제안 (Markdown)
-    - main.py에서는 보통 (jd_text, resume_concat) 두 개만 전달합니다.
-    - research_text는 필요할 때 키워드 인자로 넘길 수 있습니다.
-    """
     jd_snip   = (jd_text or "")[:CFG.max_jd_chars]
     rs_snip   = (resume_concat or "")[:CFG.max_resume_chars]
     rsch_snip = (research_text or "")[:CFG.max_research_chars]
@@ -213,7 +266,7 @@ def _cli():
     p_align.add_argument("--research", required=False, default="")
 
     args = p.parse_args()
-    meta = {}  # 필요 시 metadata_service.build_meta_from_inputs(...) 결과 사용
+    meta = {}
 
     if args.cmd == "deep":
         print(analyze_resume_or_cover(args.text, jd_text=args.jd, meta=meta))

@@ -21,6 +21,7 @@ from ares.api.views.v1.resume import (
     ResumeLinkViewSet,
 )
 from ares.api.views.v1.interview import InterviewStartAPIView, InterviewNextQuestionAPIView, InterviewSubmitAnswerAPIView, InterviewFinishAPIView
+from ares.api.views.v1.resume_analysis import ResumeAnalysisAPIView
 
 from ares.api.views.v1.social import GoogleLogin, GoogleRegisterView
 from ares.api.views.v1.user import UserDetailView, UserRegisterView
@@ -34,6 +35,9 @@ router.register(r"examples", ExampleViewSet, basename="example")
 urlpatterns = [
     # Router URLs
     path("", include(router.urls)),
+
+    # ----- AI Analysis -----
+    path("resume/analyze/", ResumeAnalysisAPIView.as_view(), name="v1-resume-analyze"),
 
     # ----- Interviews (AI-based) -----
     path("interviews/start/",  InterviewStartAPIView.as_view(), name="v1-interview-start"),

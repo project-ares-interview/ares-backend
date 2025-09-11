@@ -11,7 +11,7 @@ def normalize_lines(text: str) -> List[str]:
         l = raw.strip()
         if not l:
             continue
-        l = re.sub(r"^[\-•\d\.\)\(\]+\s*", "", l)
+        l = re.sub(r"^[\-•\d\.\)\(\]]+\s*", "", l)
         if l:
             lines.append(l)
     return lines
