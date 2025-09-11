@@ -251,4 +251,20 @@ urlpatterns = [
         GoogleRegisterView.as_view(),
         name="google_register",
     ),
+    # Interview URLs
+    path(
+        "interview/find-companies/",
+        FindCompaniesView.as_view(),
+        name="interview-find-companies",
+    ),
+    path(
+        "interview/start/",
+        StartInterviewView.as_view(),
+        name="interview-start",
+    ),
+    path(
+        "interview/analyze/",
+        AnalyzeAnswerView.as_view(),
+        name="interview-analyze",
+    ),
 ]
