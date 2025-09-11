@@ -17,7 +17,6 @@ AZURE_OAI_DEPLOYMENT  = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", os.getenv("AZU
 # 1순위: AZURE_OPENAI_EMBEDDING_DEPLOYMENT
 # 하위 호환: AZURE_OPENAI_EMBED_DEPLOYMENT_NAME / AZURE_OPENAI_EMBED_MODEL / AZURE_OAI_EMBED_DEPLOYMENT
 
-from __future__ import annotations
 import os
 import time
 from typing import Any, Dict, List, Optional, Sequence, Union
@@ -101,30 +100,6 @@ def chat(
     return _call()
 
 
-def embed(text_or_texts: Union[str, List[str]], *, max_len: int = 8000) -> Union[List[float], List[List[float]]]:
-    """
-    Embedding 벡터 생성.
-    - 입력: 단일 문자열 또는 문자열 리스트
-    - 반환: 단일이면 List[float], 다중이면 List[List[float]]
-    """
-    client = _get_client()
-    model = AI_CONFIG["EMBED_DEPLOYMENT"]
-
-    is_single = isinstance(text_or_texts, str)
-    inputs: List[str] = [text_or_texts] if is_single else list(text_or_texts)
-    # 비어있는 텍스트에 대한 기본값 설정 및 길이 제한
-    processed_inputs = [(t or "NCS")[:max_len] for t in inputs]
-
-    @_retry
-    def _call():
-        resp = client.embeddings.create(model=model, input=processed_inputs)
-        vectors = [d.embedding for d in resp.data]
-        return vectors
-
-    vectors = _call()
-    return vectors[0] if is_single else vectors
-
-
 __all__ = ["is_ready", "chat", "embed"]
 
 
@@ -143,11 +118,6 @@ if __name__ == "__main__":
 
         vecs = embed(["펌프 정비", "밸브 수리"])
         print("embed_batch dims:", len(vecs[0]))
-
-
-# 기본 임베딩 모델(미설정 시)
-if not AZURE_OAI_EMBED_DEPLOYMENT:
-    AZURE_OAI_EMBED_DEPLOYMENT = "text-embedding-3-small"
 
 _client: Optional[AzureOpenAI] = None
 
@@ -244,7 +214,7 @@ def embed(text_or_texts: Union[str, List[str]]) -> Union[List[float], List[List[
     - 반환: 단일이면 List[float], 다중이면 List[List[float]]
     """
     client = _get_client()
-    model = AZURE_OAI_EMBED_DEPLOYMENT  # 기본: text-embedding-3-small
+    model = AI_CONFIG["EMBED_DEPLOYMENT"]  # 기본: text-embedding-3-small
 
     inputs: List[str] = [text_or_texts] if isinstance(text_or_texts, str) else list(text_or_texts)
 
@@ -262,7 +232,7 @@ __all__ = ["is_ready", "chat", "embed"]
 
 def embed_batch(texts: List[str]) -> List[List[float]]:
     client = _get_client()
-    model = AZURE_OAI_EMBED_DEPLOYMENT
+    model = AZURE_OAI_DEPLOYMENT
     inputs = [(t or "NCS")[:8000] for t in texts]
 
     @_retry
