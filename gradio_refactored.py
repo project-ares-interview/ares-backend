@@ -1,4 +1,6 @@
-# main.py — 수동 메타 입력 버전 (dotenvx 실행 전제, STT 표시 반영)
+# gradio_refactored.py
+# REFACTORED VERSION
+
 import os, time, json
 from typing import List, Dict, Any
 import gradio as gr
@@ -14,7 +16,7 @@ from ares.api.utils.search_utils import search_ncs_hybrid, format_ncs_context
 
 # AI/면접/문서분석/음성
 from ares.api.services.interview_service import (
-    make_outline, generate_main_question_ondemand, generate_followups, score_answer_starc
+    make_outline, generate_main_question_ondemand, generate_followups, score_answer_starc, AIGenerationError
 )
 from ares.api.services.resume_service import (
     analyze_resume_or_cover, compare_documents, analyze_research_alignment
@@ -25,7 +27,7 @@ from ares.api.services.speech_service import stt_from_file, tts_play
 from ares.api.services.metadata_service import build_meta_from_inputs
 
 
-# ====== 보조 유틸 ======
+# ====== 보조 유틸 ====== 
 def _format_starc_report(d: Dict[str, Any]) -> str:
     if not d: return "평가 생성 실패"
     scores = d.get("scores", {})
@@ -40,7 +42,7 @@ def _format_starc_report(d: Dict[str, Any]) -> str:
         lines.append("- 코멘트:")
         for k in ["S","T","A","R","C"]:
             if comments.get(k): lines.append(f"  - {k}: {comments[k]}")
-    if summary:
+    if summary: 
         lines.append("- 요약:"); lines.extend(summary)
     return "\n".join(lines)
 
@@ -48,15 +50,16 @@ def _use_research_ctx(research_bias: bool, research_ctx: str) -> bool:
     return bool(research_bias and (research_ctx or "").strip())
 
 def _apply_meta_resume(meta: Dict[str, Any] | None, func, *args, **kwargs):
-    try: return func(*args, meta=meta, **kwargs)
-    except TypeError: return func(*args, **kwargs)  # 구버전 호환
+    try:
+        return func(*args, meta=meta, **kwargs)
+    except TypeError: # 구버전 호환
+        return func(*args, **kwargs)
+    except AIGenerationError as e:
+        gr.Warning(f"AI 모델 호출 중 오류가 발생했습니다: {e}")
+        return f"오류: {e}"
 
 # 🔸 메타에서 NCS 검색어 빌드
 def _ncs_query_from_meta(meta: Dict[str, Any] | None) -> str:
-    """
-    회사/직무 메타에서 NCS 하이브리드 검색 키워드 생성.
-    - 우선순위: role + skills + KPI
-    """
     if not meta: return ""
     role = (meta.get("role") or "").strip()
     skills = meta.get("skills") or []
@@ -66,28 +69,18 @@ def _ncs_query_from_meta(meta: Dict[str, Any] | None) -> str:
     if skills: parts.append(", ".join([s for s in skills if s]))
     if kpis: parts.append(", ".join([k for k in kpis if k]))
     q = ", ".join([p for p in parts if p]).strip()
-    # 기본 백업 키워드
     return q or "설비 정비, 예방보전, 산업안전"
 
 def _build_ncs_report(meta: Dict[str, Any] | None, jd_ctx: str, top: int = 6) -> str:
-    """
-    메타/ JD 컨텍스트 기반으로 NCS 요약과 컨텍스트 미리보기를 Markdown으로 생성.
-    - summarize_top_ncs(): 능력단위 기준 요약(요소/기준 샘플)
-    - search_ncs_hybrid() + format_ncs_context(): 프롬프트용 컨텍스트 라인
-    """
     try:
         job_title = ((meta or {}).get("role") or "").strip() or "설비 관리"
         jd_snip = (jd_ctx or "")[:4000]
 
-        # 1) Top-N 요약(능력단위/요소/수행준거 샘플)
         agg = summarize_top_ncs(job_title, jd_snip, top=top) or []
-
-        # 2) 컨텍스트 라인(하이라이트 미리보기)
         hits = search_ncs_hybrid(f"{job_title}\n{jd_snip}", top=top)
         ctx_lines = format_ncs_context(hits, max_len=1000)
 
-        if not agg and not ctx_lines:
-            return ""  # 결과 없으면 섹션 생략
+        if not agg and not ctx_lines: return ""
 
         lines = [f"## 🧩 NCS 요약 (Top {top})", f"- 질의: `{job_title}`", ""]
         for i, it in enumerate(agg, 1):
@@ -101,34 +94,34 @@ def _build_ncs_report(meta: Dict[str, Any] | None, jd_ctx: str, top: int = 6) ->
                 lines.append(f"  - 기준: {s}")
 
         if ctx_lines:
-            lines.append("\n<details><summary>NCS 컨텍스트(원문 일부)</summary>\n\n")
+            lines.append("<details><summary>NCS 컨텍스트(원문 일부)</summary>\n\n")
             lines.append(ctx_lines)
             lines.append("\n</details>\n")
 
         return "\n".join(lines).strip()
-    except Exception:
-        # 조용히 실패(환경/인덱스 미완 등)
+    except Exception as e:
+        gr.Warning(f"NCS 요약 생성 중 오류 발생: {e}")
         return ""
 
 
-# ====== Handlers ======
+# ====== Handlers ====== 
+# NOTE: 아래 핸들러들의 비즈니스 로직은 향후 별도의 Service Layer로 분리하는 것을 권장합니다.
+# =======================
+
 def on_ingest_inputs(jd_files, jd_paste, doc_files, doc_paste, research_files, research_paste):
     progress = gr.Progress(track_tqdm=True)
     progress(0.05, desc="자료 파싱")
 
-    # JD
     jd_ctx, jd_map = collect_context(jd_files)
     if jd_paste and jd_paste.strip():
         virtual_append(jd_map, "JD(붙여넣기).txt", jd_paste)
         jd_ctx = join_texts(jd_ctx, f"# [JD(붙여넣기)]\n{jd_paste}")
 
-    # 지원서
     doc_ctx, doc_map = collect_context(doc_files)
     if doc_paste and doc_paste.strip():
         virtual_append(doc_map, "지원서(붙여넣기).txt", doc_paste)
         doc_ctx = join_texts(doc_ctx, f"# [지원서(붙여넣기)]\n{doc_paste}")
 
-    # 자동 분할(원문 문서만)
     exp = dict(doc_map)
     for name, text in list(doc_map.items()):
         if "붙여넣기" in name: continue
@@ -136,7 +129,6 @@ def on_ingest_inputs(jd_files, jd_paste, doc_files, doc_paste, research_files, r
         if v and len(v) >= 2 and any(k != name for k in v.keys()): exp.update(v)
     doc_map = exp
 
-    # 리서치
     research_ctx, research_map = collect_context(research_files)
     if research_paste and research_paste.strip():
         virtual_append(research_map, "리서치(붙여넣기).txt", research_paste)
@@ -169,7 +161,6 @@ def on_run_all_analyses(doc_map: Dict[str,str], jd_ctx: str, research_ctx: str, 
     virtual_pref = [n for n in names_all if ("#이력서" in n or "#자소서" in n)]
     targets = doc_multi if doc_multi else (virtual_pref if len(virtual_pref) >= 1 else names_all[:3])
 
-    # 1) 심층 분석
     deep_results = []
     if targets:
         total = len(targets)
@@ -181,7 +172,6 @@ def on_run_all_analyses(doc_map: Dict[str,str], jd_ctx: str, research_ctx: str, 
                 deep_results.append(f"## [{name}] 심층 분석\n{deep}\n")
     deep_out = "\n\n".join(deep_results) if deep_results else "분석 가능한 지원서 텍스트가 없습니다."
 
-    # 2) 교차 분석
     progress(0.6, desc="교차 분석")
     cmp_out = "교차 분석은 최소 2개 문서가 필요합니다."
     if len(targets) >= 2:
@@ -190,14 +180,12 @@ def on_run_all_analyses(doc_map: Dict[str,str], jd_ctx: str, research_ctx: str, 
         if len(named) >= 2:
             cmp_out = _apply_meta_resume(meta, compare_documents, named)
 
-    # 3) 정합성
     progress(0.85, desc="정합성 점검")
     doc_concat = "\n\n".join([f"[{n}]\n{doc_map[n]}" for n in targets if (doc_map.get(n,"").strip())])[:16000]
     aln_out = "JD/지원서/리서치 세 가지가 모두 필요합니다."
     if (jd_ctx or "").strip() and doc_concat.strip() and (research_ctx or "").strip():
         aln_out = _apply_meta_resume(meta, analyze_research_alignment, jd_ctx, doc_concat)
 
-    # 3.5) NCS 요약 (메타/ JD 기반)
     ncs_md = _build_ncs_report(meta, jd_ctx, top=6)
 
     progress(1.0, desc="완료")
@@ -219,61 +207,63 @@ def on_select_analysis_view(results: Dict[str, str], selected_key: str):
 
 def on_start_interview(mode, outline_k, difficulty, use_tts, voice, research_bias,
                        history, plan, jd_ctx_state, doc_ctx_state, research_ctx_state, meta):
-    progress = gr.Progress()
-    progress(0.1, desc="면접 컨텍스트 구성")
+    try:
+        progress = gr.Progress()
+        progress(0.1, desc="면접 컨텍스트 구성")
 
-    plan = ensure_plan(plan)
-    plan["mode"] = mode; plan["difficulty"] = difficulty
+        plan = ensure_plan(plan)
+        plan["mode"] = mode; plan["difficulty"] = difficulty
 
-    base_context = join_texts("## [공고/JD]\n"+(jd_ctx_state or ""), "## [지원서]\n"+(doc_ctx_state or ""), limit=22000)
-    full_context = join_texts(base_context, "## [지원자 리서치]\n"+(research_ctx_state or ""), limit=24000)
-    ctx = full_context if _use_research_ctx(research_bias, research_ctx_state) else base_context
+        base_context = join_texts("## [공고/JD]\n"+(jd_ctx_state or ""), "## [지원서]\n"+(doc_ctx_state or ""), limit=22000)
+        full_context = join_texts(base_context, "## [지원자 리서치]\n"+(research_ctx_state or ""), limit=24000)
+        ctx = full_context if _use_research_ctx(research_bias, research_ctx_state) else base_context
 
-    # NEW: 메타 기반 NCS 검색어
-    ncs_query = _ncs_query_from_meta(meta)
+        ncs_query = _ncs_query_from_meta(meta)
 
-    progress(0.6, desc="첫 질문 생성")
-    prev_qs = [h["q"] for h in (history or [])]
+        progress(0.6, desc="첫 질문 생성")
+        prev_qs = [h["q"] for h in (history or [])]
+        q_text = ""
 
-    if mode == "프리플랜":
-        if not plan.get("question_bank"):
-            seed = generate_main_question_ondemand(ctx, [], difficulty, meta=meta, ncs_query=ncs_query)  # NEW
-            plan["question_bank"] = [seed] if isinstance(seed, str) else (seed or [])
-            plan["bank_cursor"] = 0
-        if plan["bank_cursor"] >= len(plan["question_bank"]):
-            return ("준비된 질문이 끝났습니다.", "", gr.update(choices=[], value=None),
-                    history, plan, None, gr.update(choices=history_labels(history), value=(history[-1]["id"] if history else None) if history else None))
-        q_text = plan["question_bank"][plan["bank_cursor"]]; plan["bank_cursor"] += 1
+        if mode == "프리플랜":
+            if not plan.get("question_bank"):
+                seed = generate_main_question_ondemand(ctx, [], difficulty, meta=meta, ncs_query=ncs_query)
+                plan["question_bank"] = [seed] if isinstance(seed, str) else (seed or [])
+                plan["bank_cursor"] = 0
+            if plan["bank_cursor"] >= len(plan["question_bank"]):
+                gr.Info("준비된 질문이 끝났습니다.")
+                return (gr.update(), gr.update(), gr.update(), history, plan, None, gr.update())
+            q_text = plan["question_bank"][plan["bank_cursor"]]; plan["bank_cursor"] += 1
 
-    elif mode == "혼합형(추천)":
-        if not plan.get("outline"):
-            plan["outline"] = make_outline(ctx, n=int(outline_k), meta=meta, ncs_query=ncs_query)  # NEW
-            plan["cursor"] = 0
-        if plan["cursor"] >= len(plan["outline"]):
-            return ("준비된 섹션이 끝났습니다.", "", gr.update(choices=[], value=None),
-                    history, plan, None, gr.update(choices=history_labels(history), value=(history[-1]["id"] if history else None) if history else None))
-        section = plan["outline"][plan["cursor"]]
-        ctx_with_section = join_texts(ctx, f"## [진행 섹션]\n{section}", limit=24000)
-        q_text = generate_main_question_ondemand(ctx_with_section, prev_qs, difficulty, meta=meta, ncs_query=ncs_query)  # NEW
-        plan["cursor"] += 1
+        elif mode == "혼합형(추천)":
+            if not plan.get("outline"):
+                plan["outline"] = make_outline(ctx, n=int(outline_k), meta=meta, ncs_query=ncs_query)
+                plan["cursor"] = 0
+            if plan["cursor"] >= len(plan["outline"]):
+                gr.Info("준비된 섹션이 끝났습니다.")
+                return (gr.update(), gr.update(), gr.update(), history, plan, None, gr.update())
+            section = plan["outline"][plan["cursor"]]
+            ctx_with_section = join_texts(ctx, f"## [진행 섹션]\n{section}", limit=24000)
+            q_text = generate_main_question_ondemand(ctx_with_section, prev_qs, difficulty, meta=meta, ncs_query=ncs_query)
+            plan["cursor"] += 1
 
-    else:  # 온디맨드
-        q_text = generate_main_question_ondemand(ctx, prev_qs, difficulty, meta=meta, ncs_query=ncs_query)  # NEW
-        if isinstance(q_text, list):
-            q_text = q_text[0] if q_text else "적절한 질문을 생성하지 못했습니다."
+        else:  # 온디맨드
+            q_text = generate_main_question_ondemand(ctx, prev_qs, difficulty, meta=meta, ncs_query=ncs_query)
 
-    qid = add_main_turn(history, plan, q_text)
-    tts_path = tts_play(q_text, voice) if use_tts else None
+        qid = add_main_turn(history, plan, q_text)
+        tts_path = tts_play(q_text, voice) if use_tts else None
 
-    progress(1.0, desc="완료")
-    return (f"{qid}. {q_text}", "", gr.update(choices=[], value=None),
-            history, plan, tts_path, gr.update(choices=history_labels(history), value=qid))
+        progress(1.0, desc="완료")
+        return (f"{qid}. {q_text}", "", gr.update(choices=[], value=None),
+                history, plan, tts_path, gr.update(choices=history_labels(history), value=qid))
 
-def on_answer(ans_text, ans_audio, followup_mode, speak_fb, voice, history, plan, meta):
+    except AIGenerationError as e:
+        gr.Warning(f"AI 모델 호출 중 오류가 발생했습니다: {e}")
+        return (gr.update(), gr.update(), gr.update(), history, plan, None, gr.update())
+
+def on_answer(ans_text, ans_audio, speak_fb, voice, history, plan, meta):
     if not history:
-        return ("먼저 '첫 질문 생성'을 눌러 면접을 시작하세요.",
-                "", gr.update(choices=[], value=None), history, plan, None,
-                gr.update(choices=[], value=None), ans_text)
+        gr.Warning("먼저 '첫 질문 생성'을 눌러 면접을 시작하세요.")
+        return (gr.update(), gr.update(), gr.update(), history, plan, None, gr.update(), ans_text)
 
     a = (ans_text or "").strip()
     stt_text = ""
@@ -281,29 +271,30 @@ def on_answer(ans_text, ans_audio, followup_mode, speak_fb, voice, history, plan
         stt_text = stt_from_file(ans_audio) or ""
         if stt_text.strip(): a = stt_text.strip()
     if not a:
-        return ("답변이 비어 있습니다.", "", gr.update(choices=[], value=None),
-                history, plan, None,
-                gr.update(choices=history_labels(history), value=(history[-1]["id"] if history else None)),
-                stt_text or ans_text)
+        gr.Warning("답변이 비어 있습니다.")
+        return (gr.update(), gr.update(), gr.update(), history, plan, None, gr.update(), stt_text or ans_text)
 
-    # NEW: NCS 키워드
-    ncs_query = _ncs_query_from_meta(meta)
+    try:
+        ncs_query = _ncs_query_from_meta(meta)
+        cur = history[-1]; cur["a"] = a
 
-    cur = history[-1]; cur["a"] = a
-    starc = score_answer_starc(cur["q"], a, meta=meta, ncs_query=ncs_query)  # NEW
-    fb_md = _format_starc_report(starc)
-    fus = generate_followups(cur["q"], a, k=3, main_index=cur["id"], meta=meta, ncs_query=ncs_query)  # NEW
+        starc = score_answer_starc(cur["q"], a, meta=meta, ncs_query=ncs_query)
+        fb_md = _format_starc_report(starc)
+        fus = generate_followups(cur["q"], a, k=3, main_index=cur["id"], meta=meta, ncs_query=ncs_query)
 
-    cur["feedback"] = fb_md
-    cur["followups"] = fus
+        cur["feedback"] = fb_md
+        cur["followups"] = fus
 
-    tts_path = tts_play(fb_md, voice) if speak_fb else None
+        tts_path = tts_play(fb_md, voice) if speak_fb else None
 
-    return (fb_md, "\n".join(fus),
-            gr.update(choices=fus, value=(fus[0] if fus else None)),
-            history, plan, tts_path,
-            gr.update(choices=history_labels(history), value=cur["id"]),
-            a)
+        return (fb_md, "\n".join(fus), 
+                gr.update(choices=fus, value=(fus[0] if fus else None)), 
+                history, plan, tts_path,
+                gr.update(choices=history_labels(history), value=cur["id"]),
+                a)
+    except AIGenerationError as e:
+        gr.Warning(f"AI 모델 호출 중 오류가 발생했습니다: {e}")
+        return (gr.update(), gr.update(), gr.update(), history, plan, None, gr.update(), a)
 
 def on_next_followup(selected_followup, use_tts, voice, history, plan):
     if not history:
@@ -312,8 +303,10 @@ def on_next_followup(selected_followup, use_tts, voice, history, plan):
     if not q:
         last = history[-1].get("followups", [])
         if not last:
-            return "더 이상 이어갈 꼬리질문이 없습니다.", "", gr.update(choices=[], value=None), history, plan, None, gr.update(choices=history_labels(history), value=history[-1]["id"])
+            gr.Info("더 이상 이어갈 꼬리질문이 없습니다.")
+            return gr.update(), gr.update(), gr.update(), history, plan, None, gr.update()
         q = last[0]
+    
     qid = add_follow_turn(history, plan, q)
     tts_path = tts_play(q, voice) if use_tts else None
     return (f"{qid}. {q}", "", gr.update(choices=[], value=None),
@@ -321,42 +314,44 @@ def on_next_followup(selected_followup, use_tts, voice, history, plan):
             gr.update(choices=history_labels(history), value=qid))
 
 def on_next_main(jd_ctx, doc_ctx, research_ctx, research_bias, use_tts, voice, history, plan, meta):
-    plan = ensure_plan(plan)
-    mode = plan.get("mode","온디맨드"); difficulty = plan.get("difficulty","보통")
+    try:
+        plan = ensure_plan(plan)
+        mode = plan.get("mode","온디맨드"); difficulty = plan.get("difficulty","보통")
 
-    base_context = join_texts("## [공고/JD]\n"+(jd_ctx or ""), "## [지원서]\n"+(doc_ctx or ""), limit=22000)
-    full_context = join_texts(base_context, "## [지원자 리서치]\n"+(research_ctx or ""), limit=24000)
-    ctx = full_context if _use_research_ctx(research_bias, research_ctx) else base_context
-    prev_qs = [h["q"] for h in (history or [])]
+        base_context = join_texts("## [공고/JD]\n"+(jd_ctx or ""), "## [지원서]\n"+(doc_ctx or ""), limit=22000)
+        full_context = join_texts(base_context, "## [지원자 리서치]\n"+(research_ctx or ""), limit=24000)
+        ctx = full_context if _use_research_ctx(research_bias, research_ctx) else base_context
+        prev_qs = [h["q"] for h in (history or [])]
+        ncs_query = _ncs_query_from_meta(meta)
+        q_text = ""
 
-    # NEW: NCS 키워드
-    ncs_query = _ncs_query_from_meta(meta)
+        if mode == "프리플랜":
+            if plan.get("bank_cursor", 0) >= len(plan.get("question_bank", [])):
+                gr.Info("준비된 질문이 끝났습니다.")
+                return (gr.update(), gr.update(), gr.update(), history, plan, None, gr.update())
+            q_text = plan["question_bank"][plan["bank_cursor"]]; plan["bank_cursor"] += 1
+        elif mode == "혼합형(추천)":
+            if not plan.get("outline"):
+                plan["outline"] = make_outline(ctx, n=5, meta=meta, ncs_query=ncs_query)
+                plan["cursor"] = 0
+            if plan["cursor"] >= len(plan["outline"]):
+                gr.Info("준비된 섹션이 끝났습니다.")
+                return (gr.update(), gr.update(), gr.update(), history, plan, None, gr.update())
+            section = plan["outline"][plan["cursor"]]
+            ctx_with_section = join_texts(ctx, f"## [진행 섹션]\n{section}", limit=24000)
+            q_text = generate_main_question_ondemand(ctx_with_section, prev_qs, difficulty, meta=meta, ncs_query=ncs_query)
+            plan["cursor"] += 1
+        else:
+            q_text = generate_main_question_ondemand(ctx, prev_qs, difficulty, meta=meta, ncs_query=ncs_query)
 
-    if mode == "프리플랜":
-        if plan.get("bank_cursor", 0) >= len(plan.get("question_bank", [])):
-            return ("준비된 질문이 끝났습니다.", "", gr.update(choices=[], value=None),
-                    history, plan, None, gr.update(choices=history_labels(history), value=(history[-1]["id"] if history else None) if history else None))
-        q_text = plan["question_bank"][plan["bank_cursor"]]; plan["bank_cursor"] += 1
-    elif mode == "혼합형(추천)":
-        if not plan.get("outline"):
-            plan["outline"] = make_outline(ctx, n=5, meta=meta, ncs_query=ncs_query)  # NEW
-            plan["cursor"] = 0
-        if plan["cursor"] >= len(plan["outline"]):
-            return ("준비된 섹션이 끝났습니다.", "", gr.update(choices=[], value=None),
-                    history, plan, None, gr.update(choices=history_labels(history), value=(history[-1]["id"] if history else None) if history else None))
-        section = plan["outline"][plan["cursor"]]
-        ctx_with_section = join_texts(ctx, f"## [진행 섹션]\n{section}", limit=24000)
-        q_text = generate_main_question_ondemand(ctx_with_section, prev_qs, difficulty, meta=meta, ncs_query=ncs_query)  # NEW
-        plan["cursor"] += 1
-    else:
-        q_text = generate_main_question_ondemand(ctx, prev_qs, difficulty, meta=meta, ncs_query=ncs_query)  # NEW
-        if isinstance(q_text, list): q_text = q_text[0] if q_text else "적절한 질문을 생성하지 못했습니다."
-
-    qid = add_main_turn(history, plan, q_text)
-    tts_path = tts_play(q_text, voice) if use_tts else None
-    return (f"{qid}. {q_text}", "", gr.update(choices=[], value=None),
-            history, plan, tts_path,
-            gr.update(choices=history_labels(history), value=qid))
+        qid = add_main_turn(history, plan, q_text)
+        tts_path = tts_play(q_text, voice) if use_tts else None
+        return (f"{qid}. {q_text}", "", gr.update(choices=[], value=None),
+                history, plan, tts_path,
+                gr.update(choices=history_labels(history), value=qid))
+    except AIGenerationError as e:
+        gr.Warning(f"AI 모델 호출 중 오류가 발생했습니다: {e}")
+        return (gr.update(), gr.update(), gr.update(), history, plan, None, gr.update())
 
 def on_select_history(sel_id, history):
     if not sel_id or not history: return "", "", "", ""
@@ -373,14 +368,13 @@ def on_finish(history, analysis_results=None):
     lines = [f"# 최종 리포트\n- 생성 시각: {_ts()}\n"]
     if analysis_results:
         lines.append("\n## 🧠 문서 분석 결과\n")
-        # 🔸 고정 키 목록 대신 전체 키 순회 → NCS 요약 자동 포함
         for key, val in (analysis_results or {}).items():
             if val and str(val).strip():
                 lines.append(f"### {key}\n{val}\n")
     if history:
         lines.append(f"\n## 🎤 면접 기록 (총 {len(history)}턴)\n")
         for t in history:
-            lines.append(f"### {t['id']}  {'(메인)' if t['type']=='main' else '(꼬리)'}\n{t['q']}\n")
+            lines.append(f"### {t['id']}  {'메인' if t['type']=='main' else '꼬리'}\n{t['q']}\n")
             lines.append(f"- **답변**\n{t.get('a','')}\n")
             lines.append(f"- **피드백(STAR+C)**\n{t.get('feedback','')}\n")
             if t.get("followups"):
@@ -394,7 +388,7 @@ def on_finish(history, analysis_results=None):
     return f"✅ 최종 리포트를 생성했습니다.\n경로: `{path}`", content
 
 
-# ====== Gradio UI ======
+# ====== Gradio UI ====== 
 with gr.Blocks(theme=gr.themes.Soft()) as demo:
     gr.Markdown("# 🤖 한큐 준비: 문서 점검 → 면접 연습 → 최종 리포트")
     history_state   = gr.State(value=[])
@@ -402,7 +396,7 @@ with gr.Blocks(theme=gr.themes.Soft()) as demo:
     jd_ctx_state    = gr.State(value=""); jd_filemap_state = gr.State(value={})
     doc_ctx_state   = gr.State(value=""); doc_filemap_state = gr.State(value={})
     research_ctx_state = gr.State(value=""); research_filemap_state = gr.State(value={})
-    analysis_results_state = gr.State(value={"심층 분석":"", "교차 분석":"", "정합성 점검":"", "NCS 요약":""})
+    analysis_results_state = gr.State(value={"심층 분석":"", "교차 분석":"", "정합성 점검":"", "NCS 요약": ""})
     meta_state = gr.State(value=None)
 
     with gr.Tabs():
@@ -443,7 +437,6 @@ with gr.Blocks(theme=gr.themes.Soft()) as demo:
                     mode_dd = gr.Dropdown(choices=["온디맨드","프리플랜","혼합형(추천)"], value="혼합형(추천)", label="질문 모드")
                     outline_k = gr.Slider(3, 8, value=5, step=1, label="섹션/문항 수(혼합형)")
                     difficulty_dd = gr.Dropdown(choices=["쉬움","보통","어려움"], value="보통", label="난이도")
-                    followup_mode = gr.Radio(choices=["evidence","why","how","risk"], value="evidence", label="꼬리질문 방향")
                     use_tts = gr.Checkbox(label="질문 TTS", value=False)
                     speak_feedback = gr.Checkbox(label="피드백 TTS", value=False)
                     tts_voice = gr.Dropdown(choices=["ko-KR-HyunsuNeural","ko-KR-SunHiNeural","ko-KR-InJoonNeural"], value="ko-KR-HyunsuNeural", label="TTS 음성")
@@ -507,7 +500,7 @@ with gr.Blocks(theme=gr.themes.Soft()) as demo:
     )
     ans_btn.click(
         fn=on_answer,
-        inputs=[answer_box, answer_audio, followup_mode, speak_feedback, tts_voice, history_state, plan_state, meta_state],
+        inputs=[answer_box, answer_audio, speak_feedback, tts_voice, history_state, plan_state, meta_state],
         outputs=[feedback_md, followups_md, followup_sel, history_state, plan_state, tts_fb, history_dd, answer_box]
     )
     next_fu_btn.click(
