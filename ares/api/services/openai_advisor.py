@@ -20,7 +20,7 @@ class InterviewAdvisor:
             deployment_name: 배포된 모델 이름
             api_version: API 버전
         """
-        self.api_key = api_key or os.getenv('AZURE_OPENAI_KEY')
+        self.api_key = api_key or os.getenv('AZURE_OPENAI_API_KEY')
         self.endpoint = endpoint or os.getenv('AZURE_OPENAI_ENDPOINT')
         self.deployment_name = deployment_name or AI_CONFIG.get("CHAT_DEPLOYMENT")
         self.api_version = api_version or AI_CONFIG.get("API_VERSION")
@@ -28,7 +28,7 @@ class InterviewAdvisor:
         if not self.api_key or not self.endpoint:
             print("⚠️ Azure OpenAI 인증 정보가 설정되지 않았습니다.")
             print("환경 변수(.env)에 다음을 설정해주세요:")
-            print("- AZURE_OPENAI_KEY")
+            print("- AZURE_OPENAI_API_KEY")
             print("- AZURE_OPENAI_ENDPOINT")
         
         # 과학적 근거 데이터베이스
