@@ -37,6 +37,7 @@ ALLOWED_HOSTS: list[str] = []
 # Application definition
 
 INSTALLED_APPS = [
+    "channels",
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -190,4 +191,15 @@ if DEBUG:
     ]
 
 CORS_ALLOW_CREDENTIALS = True
+
+# =============================================================================
+# CHANNELS SETTINGS
+# =============================================================================
+ASGI_APPLICATION = "ares.asgi.application"
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels.layers.InMemoryChannelLayer"
+    }
+}
+
 
