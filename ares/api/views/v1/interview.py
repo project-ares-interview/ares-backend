@@ -11,6 +11,8 @@ from ares.api.services.company_data import (
 )
 from ares.api.services.interview_bot import InterviewBot
 
+from django.shortcuts import render
+
 """
 면접(Interview) API:
 - Start : 세션 생성 + 첫 질문 (+ NCS 컨텍스트 주입)
@@ -573,3 +575,7 @@ class InterviewFinishAPIView(APIView):
             "report_id": report_id,
             "status": "queued",
         }).data, status=202)
+
+def interview_coach_view(request):
+    """Renders the AI Interview Coach page."""
+    return render(request, "api/interview_coach.html")

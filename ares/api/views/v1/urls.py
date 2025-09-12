@@ -21,6 +21,7 @@ from ares.api.views.v1.resume import (
     ResumeLinkViewSet,
 )
 from ares.api.views.v1.interview import (
+    interview_coach_view,
     InterviewStartAPIView,
     InterviewNextQuestionAPIView,
     InterviewSubmitAnswerAPIView,
@@ -270,4 +271,5 @@ urlpatterns = [
         AnalyzeAnswerView.as_view(),
         name="interview-analyze",
     ),
+    path("interview/coach/", interview_coach_view, name="interview-coach"),
 ]
