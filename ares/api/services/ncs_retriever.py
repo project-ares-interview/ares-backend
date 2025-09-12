@@ -14,7 +14,7 @@ class AzureNCSRetriever:
         self.index_name = "ncs-index"
 
         self.openai_endpoint = getattr(settings, "AZURE_OPENAI_ENDPOINT", None)
-        self.openai_api_key = getattr(settings, "AZURE_OPENAI_KEY", None)
+        self.openai_api_key = getattr(settings, "AZURE_OPENAI_API_KEY", None)
 
         self.deployment_name_A = getattr(settings, "AZURE_EMB_DEPLOYMENT_NAME_A", None)
         self.deployment_name_B = getattr(settings, "AZURE_EMB_DEPLOYMENT_NAME_B", None)

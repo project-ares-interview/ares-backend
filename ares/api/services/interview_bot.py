@@ -37,7 +37,7 @@ class InterviewBot:
 
         self.client = AzureOpenAI(
             azure_endpoint=getattr(settings, "AZURE_OPENAI_ENDPOINT", None),
-            api_key=getattr(settings, "AZURE_OPENAI_KEY", None),
+            api_key=getattr(settings, "AZURE_OPENAI_API_KEY", None),
             api_version=getattr(settings, "API_VERSION", "2024-02-15-preview"),
         )
         self.model = getattr(settings, "AZURE_OPENAI_MODEL", "gpt-35-turbo")
