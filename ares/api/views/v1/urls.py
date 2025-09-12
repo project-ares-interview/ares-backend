@@ -20,7 +20,15 @@ from ares.api.views.v1.resume import (
     ResumeLanguageViewSet,
     ResumeLinkViewSet,
 )
-from ares.api.views.v1.interview import InterviewStartAPIView, InterviewNextQuestionAPIView, InterviewSubmitAnswerAPIView, InterviewFinishAPIView
+from ares.api.views.v1.interview import (
+    InterviewStartAPIView,
+    InterviewNextQuestionAPIView,
+    InterviewSubmitAnswerAPIView,
+    InterviewFinishAPIView,
+    FindCompaniesView,
+    StartInterviewView,
+    AnalyzeAnswerView,
+)
 from ares.api.views.v1.resume_analysis import ResumeAnalysisAPIView
 
 from ares.api.views.v1.social import GoogleLogin, GoogleRegisterView
@@ -35,16 +43,13 @@ router.register(r"examples", ExampleViewSet, basename="example")
 urlpatterns = [
     # Router URLs
     path("", include(router.urls)),
-
     # ----- AI Analysis -----
     path("resume/analyze/", ResumeAnalysisAPIView.as_view(), name="v1-resume-analyze"),
-
     # ----- Interviews (AI-based) -----
-    path("interviews/start/",  InterviewStartAPIView.as_view(), name="v1-interview-start"),
-    path("interviews/next/",   InterviewNextQuestionAPIView.as_view(), name="v1-interview-next"),
+    path("interviews/start/", InterviewStartAPIView.as_view(), name="v1-interview-start"),
+    path("interviews/next/", InterviewNextQuestionAPIView.as_view(), name="v1-interview-next"),
     path("interviews/answer/", InterviewSubmitAnswerAPIView.as_view(), name="v1-interview-answer"),
     path("interviews/finish/", InterviewFinishAPIView.as_view(), name="v1-interview-finish"),
-
     # ----- Cover Letters Urls -----
     path(
         "cover-letters/",
@@ -53,14 +58,12 @@ urlpatterns = [
     ),
     path(
         "cover-letters/<int:pk>/",
-        CoverLetterViewSet.as_view(
-            {
-                "get": "retrieve",
-                "put": "update",
-                "patch": "partial_update",
-                "delete": "destroy",
-            }
-        ),
+        CoverLetterViewSet.as_view({
+            "get": "retrieve",
+            "put": "update",
+            "patch": "partial_update",
+            "delete": "destroy",
+        }),
         name="cover-letter-detail",
     ),
     # Resume URLs (Template)
@@ -71,14 +74,12 @@ urlpatterns = [
     ),
     path(
         "resumes/<int:pk>/",
-        ResumeViewSet.as_view(
-            {
-                "get": "retrieve",
-                "put": "update",
-                "patch": "partial_update",
-                "delete": "destroy",
-            }
-        ),
+        ResumeViewSet.as_view({
+            "get": "retrieve",
+            "put": "update",
+            "patch": "partial_update",
+            "delete": "destroy",
+        }),
         name="resume-detail",
     ),
     # Resume Detail URLs (Nested)
@@ -89,14 +90,12 @@ urlpatterns = [
     ),
     path(
         "resumes/<int:resume_pk>/careers/<int:pk>/",
-        ResumeCareerViewSet.as_view(
-            {
-                "get": "retrieve",
-                "put": "update",
-                "patch": "partial_update",
-                "delete": "destroy",
-            }
-        ),
+        ResumeCareerViewSet.as_view({
+            "get": "retrieve",
+            "put": "update",
+            "patch": "partial_update",
+            "delete": "destroy",
+        }),
         name="resume-career-detail",
     ),
     path(
@@ -106,14 +105,12 @@ urlpatterns = [
     ),
     path(
         "resumes/<int:resume_pk>/educations/<int:pk>/",
-        ResumeEducationViewSet.as_view(
-            {
-                "get": "retrieve",
-                "put": "update",
-                "patch": "partial_update",
-                "delete": "destroy",
-            }
-        ),
+        ResumeEducationViewSet.as_view({
+            "get": "retrieve",
+            "put": "update",
+            "patch": "partial_update",
+            "delete": "destroy",
+        }),
         name="resume-education-detail",
     ),
     path(
@@ -123,14 +120,12 @@ urlpatterns = [
     ),
     path(
         "resumes/<int:resume_pk>/awards/<int:pk>/",
-        ResumeAwardViewSet.as_view(
-            {
-                "get": "retrieve",
-                "put": "update",
-                "patch": "partial_update",
-                "delete": "destroy",
-            }
-        ),
+        ResumeAwardViewSet.as_view({
+            "get": "retrieve",
+            "put": "update",
+            "patch": "partial_update",
+            "delete": "destroy",
+        }),
         name="resume-award-detail",
     ),
     path(
@@ -140,14 +135,12 @@ urlpatterns = [
     ),
     path(
         "resumes/<int:resume_pk>/languages/<int:pk>/",
-        ResumeLanguageViewSet.as_view(
-            {
-                "get": "retrieve",
-                "put": "update",
-                "patch": "partial_update",
-                "delete": "destroy",
-            }
-        ),
+        ResumeLanguageViewSet.as_view({
+            "get": "retrieve",
+            "put": "update",
+            "patch": "partial_update",
+            "delete": "destroy",
+        }),
         name="resume-language-detail",
     ),
     path(
@@ -157,14 +150,12 @@ urlpatterns = [
     ),
     path(
         "resumes/<int:resume_pk>/links/<int:pk>/",
-        ResumeLinkViewSet.as_view(
-            {
-                "get": "retrieve",
-                "put": "update",
-                "patch": "partial_update",
-                "delete": "destroy",
-            }
-        ),
+        ResumeLinkViewSet.as_view({
+            "get": "retrieve",
+            "put": "update",
+            "patch": "partial_update",
+            "delete": "destroy",
+        }),
         name="resume-link-detail",
     ),
     # User Profile URLs
@@ -175,9 +166,12 @@ urlpatterns = [
     ),
     path(
         "profile/military-services/<int:pk>/",
-        MilitaryServiceViewSet.as_view(
-            {"get": "retrieve", "put": "update", "patch": "partial_update", "delete": "destroy"}
-        ),
+        MilitaryServiceViewSet.as_view({
+            "get": "retrieve",
+            "put": "update",
+            "patch": "partial_update",
+            "delete": "destroy",
+        }),
         name="profile-military-service-detail",
     ),
     path(
@@ -187,9 +181,7 @@ urlpatterns = [
     ),
     path(
         "profile/patriots/<int:pk>/",
-        PatriotViewSet.as_view(
-            {"get": "retrieve", "put": "update", "patch": "partial_update", "delete": "destroy"}
-        ),
+        PatriotViewSet.as_view({"get": "retrieve", "put": "update", "patch": "partial_update", "delete": "destroy"}),
         name="profile-patriot-detail",
     ),
     path(
@@ -199,9 +191,7 @@ urlpatterns = [
     ),
     path(
         "profile/disabilities/<int:pk>/",
-        DisabilityViewSet.as_view(
-            {"get": "retrieve", "put": "update", "patch": "partial_update", "delete": "destroy"}
-        ),
+        DisabilityViewSet.as_view({"get": "retrieve", "put": "update", "patch": "partial_update", "delete": "destroy"}),
         name="profile-disability-detail",
     ),
     path(
@@ -211,9 +201,7 @@ urlpatterns = [
     ),
     path(
         "profile/educations/<int:pk>/",
-        EducationViewSet.as_view(
-            {"get": "retrieve", "put": "update", "patch": "partial_update", "delete": "destroy"}
-        ),
+        EducationViewSet.as_view({"get": "retrieve", "put": "update", "patch": "partial_update", "delete": "destroy"}),
         name="profile-education-detail",
     ),
     path(
@@ -223,9 +211,7 @@ urlpatterns = [
     ),
     path(
         "profile/careers/<int:pk>/",
-        CareerViewSet.as_view(
-            {"get": "retrieve", "put": "update", "patch": "partial_update", "delete": "destroy"}
-        ),
+        CareerViewSet.as_view({"get": "retrieve", "put": "update", "patch": "partial_update", "delete": "destroy"}),
         name="profile-career-detail",
     ),
     path(
@@ -235,20 +221,20 @@ urlpatterns = [
     ),
     path(
         "profile/job-interests/<int:pk>/",
-        JobInterestViewSet.as_view(
-            {"get": "retrieve", "put": "update", "patch": "partial_update", "delete": "destroy"}
-        ),
+        JobInterestViewSet.as_view({
+            "get": "retrieve",
+            "put": "update",
+            "patch": "partial_update",
+            "delete": "destroy",
+        }),
         name="profile-job-interest-detail",
     ),
     path("user/", UserDetailView.as_view(), name="user_detail"),
-
     #
     path("analyze/", AnalyzeView.as_view(), name="analyze"),
-
     # Custom Views
     path("auth/registration/", UserRegisterView.as_view(), name="rest_register"),
     path("auth/user/", UserDetailView.as_view(), name="user_detail"),
-
     # dj-rest-auth Views
     path("auth/login/", LoginView.as_view(), name="rest_login"),
     path("auth/logout/", LogoutView.as_view(), name="rest_logout"),
@@ -257,7 +243,6 @@ urlpatterns = [
         TokenRefreshView.as_view(),
         name="token_refresh",
     ),
-
     # Social Auth
     path(
         "auth/google/",

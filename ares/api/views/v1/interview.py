@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
@@ -8,9 +10,6 @@ from ares.api.services.company_data import (
     get_company_description,
 )
 from ares.api.services.interview_bot import InterviewBot
-
-# ares/api/views/interview.py
-from __future__ import annotations
 
 """
 면접(Interview) API:
