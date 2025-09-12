@@ -1019,6 +1019,7 @@
             navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } })
                 .then(stream => {
                     videoElement.srcObject = stream;
+                    videoElement.play();
                     log('✅ 로컬 카메라 연결 성공');
 
                     videoElement.onloadedmetadata = () => {

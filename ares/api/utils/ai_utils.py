@@ -9,7 +9,7 @@ from ares.api.config import AI_CONFIG
 
 # ========== 환경변수 ========== 
 AZURE_OAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT", "").strip()
-AZURE_OAI_KEY = os.getenv("AZURE_OPENAI_API_KEY", os.getenv("AZURE_OPENAI_KEY", "")).strip()
+AZURE_OAI_KEY = os.getenv("AZURE_OPENAI_API_KEY", os.getenv("AZURE_OPENAI_API_KEY", "")).strip()
 
 _client: Optional[AzureOpenAI] = None
 
