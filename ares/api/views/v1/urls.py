@@ -26,6 +26,7 @@ from ares.api.views.v1.interview import (
     InterviewNextQuestionAPIView,
     InterviewSubmitAnswerAPIView,
     InterviewFinishAPIView,
+    InterviewReportAPIView, # <--- Added this line
     FindCompaniesView,
     StartInterviewView,
     AnalyzeAnswerView,
