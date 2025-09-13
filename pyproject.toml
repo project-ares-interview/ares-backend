@@ -34,6 +34,17 @@ dependencies = [
     "python-docs>=0.1.0",
     "requests>=2.32.5",
     "tqdm>=4.67.1",
+    "llama-index",
+    "llama-index-llms-azure-openai",
+    "llama-index-embeddings-azure-openai",
+    "llama-index-vector-stores-azureaisearch",
+    "llama-index-readers-file",
+    "azure-core",
+    "duckduckgo-search",
+    "python-dotenv",
+    "unidecode",
+    "pymupdf",
+    "matplotlib>=3.10.6",
 ]
 
 [tool.ruff]
