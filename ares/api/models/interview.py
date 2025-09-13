@@ -31,6 +31,7 @@ class InterviewSession(models.Model):
 
     # 🔹 신규: 세션 컨텍스트/NCS 캐시 + 언어/난이도
     context = models.JSONField(default=dict, blank=True)       # {"ncs":[...], "ncs_query":"..."}
+    rag_context = models.JSONField(default=dict, blank=True)   # 🔹 RAG 모드 컨텍스트
     language = models.CharField(max_length=8, default="ko", db_index=True)        # "ko" | "en"
     difficulty = models.CharField(max_length=16, default="normal", db_index=True)  # "easy"|"normal"|"hard"
 

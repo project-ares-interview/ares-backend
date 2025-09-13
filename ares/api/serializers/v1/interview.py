@@ -6,8 +6,10 @@ from rest_framework import serializers
 # ===== 공통 =====
 class MetaIn(serializers.Serializer):
     company = serializers.CharField(required=False, allow_blank=True, default="")
+    name = serializers.CharField(required=False, allow_blank=True, default="") # Added
     division = serializers.CharField(required=False, allow_blank=True, default="")
     role = serializers.CharField(required=False, allow_blank=True, default="")
+    job_title = serializers.CharField(required=False, allow_blank=True, default="") # Added
     skills = serializers.ListField(child=serializers.CharField(), required=False, default=list)
     jd_kpis = serializers.ListField(child=serializers.CharField(), required=False, default=list)
 
@@ -51,6 +53,7 @@ class InterviewStartIn(serializers.Serializer):
     language = serializers.ChoiceField(choices=["ko", "en"], required=False, default="ko")
 
     meta = MetaIn(required=False, default=dict)
+    ncs_context = serializers.JSONField(required=False, default=dict)
     ncs_query = serializers.CharField(required=False, allow_blank=True, default="")
 
     # ---- 방어적 검증(길이/트림/정규화) ----
@@ -155,19 +158,23 @@ class InterviewAnswerIn(serializers.Serializer):
 
 
 class InterviewAnswerOut(serializers.Serializer):
-    ok = serializers.BooleanField()
-    session_id = serializers.UUIDField(required=False)
-    turn_index = serializers.IntegerField(required=False)
-    feedback = serializers.CharField(required=False, allow_blank=True)
-    # ✅ 점수는 nullable 허용
+    ok = serializers.BooleanField(default=True)
+    session_id = serializers.UUIDField()
+    turn_index = serializers.IntegerField()
+    
+    # Analysis results from the new bot
+    selected_framework_answerer = serializers.ListField(child=serializers.CharField(), required=False)
+    star_analysis = serializers.DictField(required=False, allow_null=True)
+    base_analysis = serializers.DictField(required=False, allow_null=True)
+    case_analysis = serializers.DictField(required=False, allow_null=True)
+    system_analysis = serializers.DictField(required=False, allow_null=True)
     scores = serializers.DictField(required=False, allow_null=True)
-    tips = serializers.ListField(child=serializers.CharField(), required=False, default=list)
-    # ✅ 상태 노출
-    scoring_status = serializers.ChoiceField(
-        choices=["ok", "pending", "failed"], required=False, default="ok"
-    )
-    scoring_error = serializers.CharField(required=False, allow_blank=True, default="")
-
+    scoring_reason = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    strengths = serializers.ListField(child=serializers.CharField(), required=False)
+    improvements = serializers.ListField(child=serializers.CharField(), required=False)
+    feedback = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    model_answer = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    model_answer_framework = serializers.CharField(required=False, allow_blank=True, allow_null=True)
 
 
 # ===== Finish =====

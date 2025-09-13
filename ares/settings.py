@@ -33,6 +33,17 @@ CLIENT_PORT = os.getenv("CLIENT_PORT", "8081")
 
 ALLOWED_HOSTS: list[str] = []
 
+# Map RAG-specific environment variables
+os.environ['AZURE_OPENAI_KEY'] = os.getenv('AZURE_OPENAI_API_KEY', '')
+os.environ['AZURE_OPENAI_MODEL'] = os.getenv('AZURE_OPENAI_DEPLOYMENT_NAME', '')
+os.environ['AZURE_EMBEDDING_MODEL'] = os.getenv('AZURE_OPENAI_EMBEDDING_DEPLOYMENT', '')
+# Ensure API_VERSION is also set if not already
+if 'API_VERSION' not in os.environ:
+    os.environ['API_VERSION'] = os.getenv('AZURE_OPENAI_API_VERSION', '2024-02-15-preview')
+
+# Map Azure Blob Container Name
+os.environ['AZURE_BLOB_CONTAINER'] = os.getenv('AZURE_BLOB_CONTAINER', 'interview-data')
+
 
 # Application definition
 
