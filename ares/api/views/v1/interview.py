@@ -227,7 +227,11 @@ class InterviewStartAPIView(APIView):
                 company_name=company_name,
                 job_title=job_title,
                 container_name=container_name,
-                index_name=index_name
+                index_name=index_name,
+                ncs_context=ncs_ctx,
+                jd_context=jd_context,
+                resume_context=resume_context,
+                research_context=research_context
             )
             
             if not rag_bot.rag_ready:
@@ -243,6 +247,8 @@ class InterviewStartAPIView(APIView):
                 'job_title': job_title,
                 'container_name': container_name,
                 'index_name': index_name,
+                'ncs_context': ncs_ctx,
+                'jd_context': jd_context # Save jd_context in rag_context_to_save
             }
 
         else:
@@ -325,7 +331,8 @@ class InterviewNextQuestionAPIView(APIView):
                 company_name=rag_info.get('company_name', ''),
                 job_title=rag_info.get('job_title', ''),
                 container_name=rag_info.get('container_name', ''),
-                index_name=rag_info.get('index_name', '')
+                index_name=rag_info.get('index_name', ''),
+                ncs_context=rag_info.get('ncs_context', {}) # Pass ncs_context
             )
             
             if not rag_bot.rag_ready:
@@ -403,7 +410,8 @@ class InterviewSubmitAnswerAPIView(APIView):
                 company_name=rag_info.get('company_name', ''),
                 job_title=rag_info.get('job_title', ''),
                 container_name=rag_info.get('container_name', ''),
-                index_name=rag_info.get('index_name', '')
+                index_name=rag_info.get('index_name', ''),
+                ncs_context=rag_info.get('ncs_context', {}) # Pass ncs_context
             )
             
             if not rag_bot.rag_ready:

@@ -27,16 +27,16 @@ def _sanitize_json_object(text: str) -> str:
     if m:
         text = m.group(0)
 
-    # 줄바꿈 경계에서 누락된 쉼표 보정: ...}\n"key" → ...},\n"key"
+    # 줄바꿈 경계에서 누락된 쉼표 보정: ...}\n"key" -> ...},\n"key"
     text = re.sub(r'([}\]0-9eE"\\])\s*[\r\n]+\s*(")', r"\1,\n\2", text)
 
-    # } "key" 처럼 공백만 있고 콤마 없는 경우: } "key" → }"key"
+    # } "key" 처럼 공백만 있고 콤마 없는 경우: } "key" -> }"key"
     text = re.sub(r'([}\]])\s*(")', r'\1\2', text)
 
-    # 트레일링 콤마 제거: , } 또는 , ] → } 또는 ]
+    # 트레일링 콤마 제거: , } 또는 , ] -> } 또는 ]
     text = re.sub(r",\s*([}\]])", r"\1", text)
 
-    # True/False/None → true/false/null (파이썬 표기 보정)
+    # True/False/None -> true/false/null (파이썬 표기 보정)
     text = re.sub(r"\bTrue\b", "true", text)
     text = re.sub(r"\bFalse\b", "false", text)
     text = re.sub(r"\bNone\b", "null", text)
@@ -64,7 +64,7 @@ def extract_json_from_response(text: str) -> str:
     if m:
         return m.group(1)
     # 2) 텍스트에서 가장 큰 JSON 객체(그리디)
-    m = re.search(r'\{.*\}', text, re.DOTALL)
+    m = re.search(r"\{.*\}", text, re.DOTALL)
     if m:
         return m.group(0)
     # 3) 원문 반환 (최후의 수단)
@@ -74,28 +74,43 @@ def extract_json_from_response(text: str) -> str:
 class RAGInterviewBot:
     """[최종] 평가 결과를 면접 종료 후 일괄 제공하는 면접 시스템"""
 
-    def __init__(self, company_name: str, job_title: str, container_name: str, index_name: str):
+    def __init__(
+        self,
+        company_name: str,
+        job_title: str,
+        container_name: str,
+        index_name: str,
+        ncs_context: dict | None = None,
+        jd_context: str = "",
+        resume_context: str = "",
+        research_context: str = "",
+        **kwargs,
+    ):
         print("🤖 RAG 전용 사업 분석 면접 시스템 초기화...")
         self.company_name = company_name
         self.job_title = job_title
+        self.ncs_context = ncs_context or {}
+        self.jd_context = jd_context
+        self.resume_context = resume_context
+        self.research_context = research_context
 
         # API 버전 키 정합성: AZURE_OPENAI_API_VERSION 우선, 없으면 API_VERSION 폴백
         api_version = (
-            os.getenv('AZURE_OPENAI_API_VERSION')
-            or os.getenv('API_VERSION')
-            or '2024-08-01-preview'
+            os.getenv("AZURE_OPENAI_API_VERSION")
+            or os.getenv("API_VERSION")
+            or "2024-08-01-preview"
         )
 
         self.client = AzureOpenAI(
-            azure_endpoint=os.getenv('AZURE_OPENAI_ENDPOINT'),
-            api_key=os.getenv('AZURE_OPENAI_KEY'),
+            azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
+            api_key=os.getenv("AZURE_OPENAI_KEY"),
             api_version=api_version,
         )
-        # 배포/모델명 키 호환: MODEL → DEPLOYMENT → 기본값
+        # 배포/모델명 키 호환: MODEL -> DEPLOYMENT -> 기본값
         self.model = (
-            os.getenv('AZURE_OPENAI_MODEL')
-            or os.getenv('AZURE_OPENAI_DEPLOYMENT')
-            or 'gpt-4o'
+            os.getenv("AZURE_OPENAI_MODEL")
+            or os.getenv("AZURE_OPENAI_DEPLOYMENT")
+            or "gpt-4o"
         )
 
         print("\n📊 Azure 사업 분석 RAG 시스템 연동...")
@@ -123,17 +138,37 @@ class RAGInterviewBot:
             return []
         print(f"\n🧠 {self.company_name} 맞춤 질문 생성 중...")
         try:
+            # RAG 쿼리를 직무와 관련된 회사 정보에 초점을 맞추도록 수정
             business_info = self.rag_system.query(
-                f"{self.company_name}의 핵심 사업, 최근 실적, 주요 리스크에 대해 요약해줘."
+                f"{self.company_name}의 핵심 사업, 최근 실적, 주요 리스크, 그리고 {self.job_title} 직무와 관련된 회사 정보에 대해 요약해줘."
             )
+
+            # NCS 컨텍스트를 프롬프트에 추가하여 직무 관련성을 높임
+            ncs_info = ""
+            if self.ncs_context.get("ncs"):
+                ncs_titles = [item.get("title") for item in self.ncs_context["ncs"] if item.get("title")]
+                if ncs_titles:
+                    ncs_info = f"\n\n[NCS 직무 관련 정보]\n이 직무는 다음 NCS 역량과 관련이 깊습니다: {', '.join(ncs_titles)}."
 
             prompt = f"""
 당신은 {self.company_name}의 {self.job_title} 직무 면접관입니다.
-아래의 최신 사업 현황 데이터를 바탕으로, 지원자의 분석력과 전략적 사고를 검증할 수 있는 날카로운 질문 {num_questions}개를 생성해주세요.
+아래의 최신 사업 현황 데이터, 직무 기술서, 지원자 이력서, 지원자 리서치 정보, 그리고 NCS 직무 관련 정보를 바탕으로, 지원자의 분석력과 전략적 사고, 그리고 {self.job_title} 직무에 대한 전문성을 검증할 수 있는 날카로운 질문 {num_questions}개를 생성해주세요.
+특히, 제공된 직무 기술서(JD)와 NCS 정보를 참고하여 해당 직무의 핵심 역량을 파악하고, 이를 중심으로 질문을 구성해주세요.
+지원자의 이력서와 리서치 정보를 활용하여 개인 맞춤형 질문을 포함할 수 있습니다.
 반드시 JSON만 반환하세요.
 
 [최신 사업 요약]
 {business_info}
+
+[직무 기술서 (JD)]
+{self.jd_context}
+
+[지원자 이력서 요약]
+{self.resume_context}
+
+[지원자 리서치 정보]
+{self.research_context}
+{ncs_info}
 
 예시 형식:
 {{ "questions": ["생성된 질문 1", "생성된 질문 2"] }}
@@ -407,7 +442,7 @@ class RAGInterviewBot:
             print(f"\n--- [질문 {i}/{len(questions)}] ---")
             print(f"👨‍💼 면접관: {question}")
             answer = input("💬 답변: ")
-            if answer.lower() in ['/quit', '/종료']:
+            if answer.lower() in ["/quit", "/종료"]:
                 break
 
             # [핵심] 평가는 수행하되, 결과는 출력하지 않고 저장만 함
@@ -442,7 +477,7 @@ class RAGInterviewBot:
 
             # 1. 개별 답변 분석 결과부터 순서대로 출력
             for item in interview_transcript:
-                self.print_individual_analysis(item['analysis'], item['question_num'])
+                self.print_individual_analysis(item["analysis"], item["question_num"])
 
             # 2. 최종 종합 리포트 생성 및 출력 (누락 보완)
             report = self.generate_final_report(interview_transcript)
@@ -458,13 +493,13 @@ class RAGInterviewBot:
             # 면접 전체 대화 내용과 개별 분석 결과를 요약하여 프롬프트에 전달
             conversation_summary = ""
             for item in transcript:
-                q_num = item['question_num']
+                q_num = item["question_num"]
                 analysis_assessment = (
-                    item['analysis']
-                    .get('content_analysis', {})
-                    .get('strategic_insight', {})
-                    .get('assessment', '분석 미완료')
-                    if isinstance(item.get('analysis'), dict) else '분석 미완료'
+                    item["analysis"]
+                    .get("content_analysis", {})
+                    .get("strategic_insight", {})
+                    .get("assessment", "분석 미완료")
+                    if isinstance(item.get("analysis"), dict) else "분석 미완료"
                 )
                 conversation_summary += (
                     f"질문 {q_num}: {item['question']}\n"
@@ -539,9 +574,9 @@ class RAGInterviewBot:
 
 def main():
     try:
-        target_container = 'interview-data'
+        target_container = "interview-data"
         company_name = input("면접을 진행할 회사 이름 (예: SK하이닉스): ")
-        safe_company_name_for_index = unidecode(company_name.lower()).replace(' ', '-')
+        safe_company_name_for_index = unidecode(company_name.lower()).replace(" ", "-")
         index_name = f"{safe_company_name_for_index}-report-index"
         job_title = input("지원 직무 (예: 사업분석가): ")
 
