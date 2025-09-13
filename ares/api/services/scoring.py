@@ -24,7 +24,7 @@ _KEY_NORMALIZATION_MAP = {
 
     # AI가 보낼 수 있는 다른 변형들
     'star': 'star', 'base': 'competency', 'competency-based': 'competency',
-    'case': 'case', 'mece': 'case', 'Case' : 'case', 
+    'case': 'case/mece', 'mece': 'case/mece', 'Case' : 'case/mece', 
     'system': 'systemdesign',
 
     # 오타

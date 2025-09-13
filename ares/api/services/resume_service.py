@@ -1,6 +1,6 @@
 # ares/api/services/resume_service.py
 from __future__ import annotations
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Tuple
 from dataclasses import dataclass
 import json, argparse, sys
 
@@ -96,16 +96,20 @@ def _label_section(i: int, total: int, content: str) -> str:
     h = f"### [분할 {i}/{total}]\n"
     return h + (content.strip() if content else "")
 
-def _build_ncs_report(meta: Dict[str, Any] | None, jd_ctx: str, top: int = 6) -> str:
+def _build_ncs_report(meta: Dict[str, Any] | None, jd_ctx: str, top: int = 6) -> Tuple[str, Dict]:
     try:
         job_title = ((meta or {}).get("job_title") or "").strip() or "설비 관리"
         jd_snip = (jd_ctx or "")[:4000]
+        query = f"{job_title}\n{jd_snip}"
 
         agg = summarize_top_ncs(job_title, jd_snip, top=top) or []
-        hits = search_ncs_hybrid(f"{job_title}\n{jd_snip}", top=top)
+        hits = search_ncs_hybrid(query, top=top) or []
         ctx_lines = format_ncs_context(hits, max_len=1000)
 
-        if not agg and not ctx_lines: return ""
+        structured_context = {"ncs": hits, "ncs_query": query}
+
+        if not agg and not ctx_lines: 
+            return "", structured_context
 
         lines = [f"## 🧩 NCS 요약 (Top {top})", f"- 질의: `{job_title}`", ""]
         for i, it in enumerate(agg, 1):
@@ -123,13 +127,14 @@ def _build_ncs_report(meta: Dict[str, Any] | None, jd_ctx: str, top: int = 6) ->
             lines.append(ctx_lines)
             lines.append("\n</details>\n")
 
-        return "\n".join(lines).strip()
+        report_string = "\n".join(lines).strip()
+        return report_string, structured_context
     except Exception as e:
         _log.warning(f"NCS 요약 생성 중 오류 발생: {e}")
-        return "NCS 요약 생성 중 오류가 발생했습니다."
+        return "NCS 요약 생성 중 오류가 발생했습니다.", {}
 
 # ---------- 공개 API ----------
-def analyze_all(jd_text: str, resume_text: str, research_text: str, company_meta: Dict[str, Any]) -> Dict[str, str]:
+def analyze_all(jd_text: str, resume_text: str, research_text: str, company_meta: Dict[str, Any]) -> Dict[str, Any]:
     """
     JD, 이력서, 리서치 자료를 바탕으로 4가지 종합 분석을 개별 수행하여 상세 결과를 반환합니다.
     """
@@ -145,14 +150,15 @@ def analyze_all(jd_text: str, resume_text: str, research_text: str, company_meta
     if (research_text or "").strip():
         aln_out = analyze_research_alignment(jd_text, resume_text, research_text=research_text, meta=company_meta)
 
-    # 4. NCS 요약
-    ncs_out = _build_ncs_report(company_meta, jd_text, top=6)
+    # 4. NCS 요약 및 구조화된 컨텍스트 생성
+    ncs_out, ncs_ctx = _build_ncs_report(company_meta, jd_text, top=6)
 
     return {
         "심층분석": deep_out,
         "교차분석": cmp_out,
         "정합성점검": aln_out,
         "NCS요약": ncs_out,
+        "ncs_context": ncs_ctx,  # 구조화된 NCS 데이터 추가
     }
 
 def analyze_resume_or_cover(text: str, jd_text: str = "", meta: Dict[str, Any] | None = None) -> str:
@@ -215,10 +221,11 @@ def compare_documents(named_texts: Dict[str, str], meta: Dict[str, Any] | None =
 
     return _safe_chat(msgs, temperature=CFG.t_cmp, max_tokens=CFG.max_tokens_cmp, default="평가 생성 실패")
 
+
 def analyze_research_alignment(
     jd_text: str,
     resume_concat: str,
-    *,
+    *, 
     research_text: str = "",
     meta: Dict[str, Any] | None = None
 ) -> str:

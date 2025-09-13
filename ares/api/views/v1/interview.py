@@ -1,5 +1,5 @@
 from __future__ import annotations
-
+import os
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
@@ -10,6 +10,10 @@ from ares.api.services.company_data import (
     get_company_description,
 )
 from ares.api.services.interview_bot import InterviewBot
+from ares.api.services.rag.final_interview_rag import RAGInterviewBot
+from unidecode import unidecode
+
+# ares/api/views/interview.py
 
 from django.shortcuts import render
 
@@ -39,6 +43,7 @@ from ares.api.serializers.v1.interview import (
 # 서비스/유틸
 from ares.api.utils.file_utils import join_texts
 from ares.api.services import interview_service
+from ares.api.services.interview_bot_service import InterviewBot # 🔹 InterviewBot 서비스 임포트
 try:
     from ares.api.utils.search_utils import search_ncs_hybrid
 except Exception:
@@ -84,7 +89,6 @@ class StartInterviewView(APIView):
         bot = InterviewBot(job_title, company_name, company_description)
         first_question = bot.ask_first_question()
         
-        # 대화 상태를 세션에 저장
         request.session['interview_bot'] = bot.conversation_history
         request.session['interview_info'] = {
             'job_title': job_title,
@@ -104,7 +108,6 @@ class AnalyzeAnswerView(APIView):
         if not answer:
             return Response({"error": "Answer is required"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # 세션에서 면접 정보 복원
         conversation_history = request.session.get('interview_bot')
         interview_info = request.session.get('interview_info')
 
@@ -121,7 +124,6 @@ class AnalyzeAnswerView(APIView):
         current_question = bot.conversation_history[-1]['question']
         analysis_result = bot.analyze_answer(current_question, answer)
         
-        # 분석 후 대화 기록 업데이트
         request.session['interview_bot'] = bot.conversation_history
 
         return Response(analysis_result, status=status.HTTP_200_OK)
@@ -132,12 +134,11 @@ class AnalyzeAnswerView(APIView):
 def _ncs_query_from_meta(meta: dict | None) -> str:
     if not meta:
         return ""
-    # 우선순위: meta['ncs_query'] > role/division/company/skills/kpis
     if (q := (meta.get("ncs_query") or "").strip()):
         return q
-    role = (meta.get("role") or "").strip()
+    role = (meta.get("role") or meta.get("job_title") or "").strip()
     division = (meta.get("division") or "").strip()
-    company = (meta.get("company") or "").strip()
+    company = (meta.get("company") or meta.get("name") or "").strip()
     skills = meta.get("skills") or []
     kpis = meta.get("jd_kpis") or []
     parts: List[str] = [p for p in [company, division, role] if p]
@@ -146,7 +147,6 @@ def _ncs_query_from_meta(meta: dict | None) -> str:
     if kpis:
         parts.append(", ".join([k for k in kpis if k]))
     return ", ".join(parts).strip()
-
 
 def _normalize_difficulty(x: str | None) -> str:
     m = {
@@ -157,17 +157,12 @@ def _normalize_difficulty(x: str | None) -> str:
 
 
 def _make_ncs_context(meta: Dict[str, Any] | None, top_k: int = 5) -> Dict[str, Any]:
-    """
-    meta를 바탕으로 NCS 검색 → [{"code","title","desc","score"}] 형식 리스트 반환
-    semantic 있으면 우선, 없거나 실패하면 hybrid, 그것도 없으면 빈 리스트.
-    """
     q = _ncs_query_from_meta(meta)
     if not q:
         return {"ncs": [], "ncs_query": ""}
 
     items: List[Dict[str, Any]] = []
 
-    # 1) semantic 시도 (함수가 있을 때만)
     if search_ncs_hybrid_semantic:
         try:
             sem = search_ncs_hybrid_semantic(q, top_k=top_k)
@@ -175,14 +170,12 @@ def _make_ncs_context(meta: Dict[str, Any] | None, top_k: int = 5) -> Dict[str, 
         except Exception as e:
             log.warning(f"[NCS] semantic failed ({e}), fallback to hybrid")
 
-    # 2) hybrid 폴백 (함수가 있을 때만)
     if not items and search_ncs_hybrid:
         try:
             items = search_ncs_hybrid(q, top_k=top_k) or []
         except Exception as e:
             log.warning(f"[NCS] hybrid failed ({e})")
 
-    # 3) 아무 것도 없으면 빈 컨텍스트
     if not items:
         return {"ncs": [], "ncs_query": q}
 
@@ -210,46 +203,79 @@ class InterviewStartAPIView(APIView):
         jd_context = v["jd_context"]
         resume_context = v["resume_context"]
         research_context = v.get("research_context", "")
-        research_bias = v.get("research_bias", True)
         difficulty = _normalize_difficulty(v.get("difficulty"))
         language = (v.get("language") or "ko").lower()
-        meta = v.get("meta", {}) or {}
+        meta = v.get("meta", {})
+        ncs_context_in = v.get("ncs_context", {})
 
-        # 1) 컨텍스트 구성
-        base_context = join_texts(
-            f"## [공고/JD]\n{jd_context}".strip(),
-            f"## [지원서]\n{resume_context}".strip(),
-        )
-        full_context = join_texts(
-            base_context,
-            f"## [지원자 리서치]\n{research_context}".strip(),
-        )
-        context = full_context if (research_bias and (research_context or "").strip()) else base_context
+        use_rag_mode = (difficulty == 'hard')
+        question_text = ""
+        ncs_ctx = {}
+        rag_context_to_save = {}
 
-        # 2) NCS 컨텍스트 주입 (실제 검색)
-        ncs_ctx = _make_ncs_context(meta, top_k=5)
+        if use_rag_mode:
+            company_name = meta.get('company', '') or meta.get('name', '')
+            job_title = meta.get('role', '') or meta.get('job_title', '')
+            if not company_name:
+                return Response({"error": "Company name is required for RAG mode"}, status=status.HTTP_400_BAD_REQUEST)
+            
+            safe_company_name_for_index = unidecode(company_name.lower()).replace(' ', '-')
+            index_name = f"{safe_company_name_for_index}-report-index"
+            container_name = os.getenv('AZURE_BLOB_CONTAINER', 'interview-data')
 
-        # 3) 첫 질문 생성 (메인 질문)
-        try:
-            question_text = interview_service.generate_main_question_ondemand(
-                context=context,
-                prev_questions=[],
-                difficulty=difficulty,
-                meta=meta,
-                ncs_query=ncs_ctx.get("ncs_query", ""),
+            rag_bot = RAGInterviewBot(
+                company_name=company_name,
+                job_title=job_title,
+                container_name=container_name,
+                index_name=index_name
             )
-        except Exception as e:
-            log.exception("generate_main_question_ondemand failed: %s", e)
-            return Response({"error": "질문 생성 실패"}, status=500)
+            
+            if not rag_bot.rag_ready:
+                return Response({"error": "RAG system not ready. Check Azure configurations or if documents are indexed."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        # 4) 세션/턴 저장
+            questions = rag_bot.generate_questions(num_questions=1)
+            question_text = questions[0] if questions else ""
+            if not question_text:
+                 return Response({"error": "Failed to generate RAG-based question."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+            rag_context_to_save = {
+                'company_name': company_name,
+                'job_title': job_title,
+                'container_name': container_name,
+                'index_name': index_name,
+            }
+
+        else:
+            context = join_texts(
+                f"## [공고/JD]\n{jd_context}".strip(),
+                f"## [지원서]\n{resume_context}".strip(),
+                f"## [지원자 리서치]\n{research_context}".strip(),
+            )
+            
+            ncs_ctx = ncs_context_in
+            if not ncs_ctx.get("ncs"):
+                ncs_ctx = _make_ncs_context(meta, top_k=5)
+
+            try:
+                question_text = interview_service.generate_main_question_ondemand(
+                    context=context,
+                    prev_questions=[],
+                    difficulty=difficulty,
+                    meta=meta,
+                    ncs_query=ncs_ctx.get("ncs_query", ""),
+                )
+            except Exception as e:
+                log.exception("generate_main_question_ondemand failed: %s", e)
+                return Response({"error": "질문 생성 실패"}, status=500)
+
         session = InterviewSession.objects.create(
             user=request.user if getattr(request.user, "is_authenticated", False) else None,
             jd_context=jd_context,
             resume_context=resume_context,
             ncs_query=ncs_ctx.get("ncs_query", ""),
             meta=meta,
-            context={"ncs": ncs_ctx.get("ncs", []), "ncs_query": ncs_ctx.get("ncs_query", "")},
+            context=ncs_ctx,
+            rag_context=rag_context_to_save,
             language=language,
             difficulty=difficulty,
         )
@@ -281,73 +307,69 @@ class InterviewNextQuestionAPIView(APIView):
         s.is_valid(raise_exception=True)
         v = s.validated_data
 
-        difficulty = _normalize_difficulty(v.get("difficulty"))
-        language = (v.get("language") or "ko").lower()
         session_id = v.get("session_id")
+        if not session_id:
+            return Response({"error": "session_id is required"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # === 세션 기반 (권장) ===
-        if session_id:
-            try:
-                session = InterviewSession.objects.get(
-                    id=session_id, status=InterviewSession.Status.ACTIVE
-                )
-            except InterviewSession.DoesNotExist:
-                return Response({"detail": "유효하지 않은 세션이거나 종료됨"}, status=404)
+        try:
+            session = InterviewSession.objects.get(
+                id=session_id, status=InterviewSession.Status.ACTIVE
+            )
+        except InterviewSession.DoesNotExist:
+            return Response({"detail": "유효하지 않은 세션이거나 종료됨"}, status=404)
 
-            # 직전 candidate 답변 추출 (있으면 followups 품질 ↑)
-            last_cand = session.turns.filter(
-                role=InterviewTurn.Role.CANDIDATE
-            ).order_by("-turn_index").first()
-            last_answer = last_cand.answer if last_cand else None
+        rag_mode = bool(session.rag_context)
+        if rag_mode:
+            rag_info = session.rag_context
+            rag_bot = RAGInterviewBot(
+                company_name=rag_info.get('company_name', ''),
+                job_title=rag_info.get('job_title', ''),
+                container_name=rag_info.get('container_name', ''),
+                index_name=rag_info.get('index_name', '')
+            )
+            
+            if not rag_bot.rag_ready:
+                return Response({"error": "RAG system not ready for follow-up questions."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-            # NCS 컨텍스트
-            ncs_list = ((session.context or {}).get("ncs")) or []
+            last_cand = session.turns.filter(role=InterviewTurn.Role.CANDIDATE).order_by("-turn_index").first()
+            last_answer = last_cand.answer if last_cand else ""
+            last_question = last_cand.question if last_cand else ""
+
+            followups = [rag_bot.generate_follow_up_question(last_question, last_answer, {})]
+            followups = [f for f in followups if f] or ["이전 답변에 대해 더 자세히 설명해주시겠습니까?"]
+
+        else:
+            last_cand = session.turns.filter(role=InterviewTurn.Role.CANDIDATE).order_by("-turn_index").first()
+            if not last_cand:
+                return Response({"error": "No previous answer found to generate a follow-up question."}, status=400)
 
             try:
                 followups = interview_service.generate_followups(
-                    meta=session.meta or {},
-                    language=language,
-                    difficulty=difficulty,
-                    ncs_context=ncs_list,
-                    based_on_answer=last_answer,
-                    modes=["evidence", "why", "how", "risk"],
+                    main_q=last_cand.question or "",
+                    answer=last_cand.answer or "",
                     k=4,
+                    meta=session.meta or {},
+                    ncs_query=session.ncs_query,
                 )
             except Exception as e:
                 log.exception("generate_followups failed: %s", e)
                 return Response({"error": "꼬리질문 생성 실패"}, status=500)
 
-            last = session.turns.order_by("-turn_index").first()
-            turn = InterviewTurn.objects.create(
-                session=session,
-                turn_index=(0 if not last else last.turn_index + 1),
-                role=InterviewTurn.Role.INTERVIEWER,
-                question="",            # ⬅️ None 금지: 빈 문자열로 저장
-                followups=followups,
-            )
+        last = session.turns.order_by("-turn_index").first()
+        turn = InterviewTurn.objects.create(
+            session=session,
+            turn_index=(0 if not last else last.turn_index + 1),
+            role=InterviewTurn.Role.INTERVIEWER,
+            question="",
+            followups=followups,
+        )
 
-            out = InterviewNextOut({
-                "session_id": session.id,
-                "turn_index": turn.turn_index,
-                "followups": followups,
-            })
-            return Response(out.data, status=200)
-
-        # === 구버전(context) 경로 (호환) ===
-        try:
-            followups = interview_service.generate_followups(
-                meta=v.get("meta", {}) or {},
-                language=language,
-                difficulty=difficulty,
-                ncs_context=[],
-                based_on_answer=None,
-                modes=["evidence", "why", "how", "risk"],
-                k=4,
-            )
-            return Response(InterviewNextOut({"followups": followups}).data, status=200)
-        except Exception as e:
-            log.exception("legacy followups failed: %s", e)
-            return Response({"error": "꼬리질문 생성 실패"}, status=500)
+        out = InterviewNextOut({
+            "session_id": session.id,
+            "turn_index": turn.turn_index,
+            "followups": followups,
+        })
+        return Response(out.data, status=200)
 
 
 class InterviewSubmitAnswerAPIView(APIView):
@@ -360,27 +382,45 @@ class InterviewSubmitAnswerAPIView(APIView):
         v = s.validated_data
 
         session_id = v.get("session_id")
-        question = v.get("question", "")  # 메인/꼬리질문 텍스트(선택, turn_index 지정 시 생략 가능)
+        if not session_id:
+            return Response({"error": "session_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        question = v.get("question", "")
         answer = v["answer"]
-        language = (v.get("language") or "ko").lower()
 
-        # === 세션 기반 ===
-        if session_id:
-            try:
-                session = InterviewSession.objects.get(
-                    id=session_id, status=InterviewSession.Status.ACTIVE
-                )
-            except InterviewSession.DoesNotExist:
-                return Response({"detail": "유효하지 않은 세션이거나 종료됨"}, status=404)
+        try:
+            session = InterviewSession.objects.get(
+                id=session_id, status=InterviewSession.Status.ACTIVE
+            )
+        except InterviewSession.DoesNotExist:
+            return Response({"detail": "유효하지 않은 세션이거나 종료됨"}, status=404)
 
-            # 요청된 turn_index의 interviewer 질문 복원 (있으면 우선)
+        # 🔹 RAG 모드 (난이도 hard)인 경우의 분기 처리는 유지
+        rag_mode = bool(session.rag_context)
+        if rag_mode:
+            rag_info = session.rag_context
+            rag_bot = RAGInterviewBot(
+                company_name=rag_info.get('company_name', ''),
+                job_title=rag_info.get('job_title', ''),
+                container_name=rag_info.get('container_name', ''),
+                index_name=rag_info.get('index_name', '')
+            )
+            
+            if not rag_bot.rag_ready:
+                return Response({"error": "RAG system not ready for answer analysis."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+            analysis_result = rag_bot.analyze_answer_with_rag(question, answer)
+            # RAG 모드의 응답 형식도 통일성을 위해 InterviewAnswerOut 사용을 고려할 수 있음
+            return Response(analysis_result, status=status.HTTP_200_OK)
+
+        # 🔹 일반 모드 (기존 로직을 새로운 InterviewBot으로 교체)
+        else:
             req_turn_idx = v.get("turn_index")
             if req_turn_idx is not None:
                 try:
                     qturn = session.turns.get(
                         turn_index=req_turn_idx, role=InterviewTurn.Role.INTERVIEWER
                     )
-                    # 메인질문이면 question 필드, 꼬리질문이면 followups 중 선택했을 수 있음
                     question_db = qturn.question or question
                 except InterviewTurn.DoesNotExist:
                     question_db = question
@@ -398,143 +438,39 @@ class InterviewSubmitAnswerAPIView(APIView):
                 answer=answer,
             )
 
-            # STAR-C 평가 (서비스 시그니처 정합 + 결과 매핑)
-            scoring: Dict[str, Any] = {
-                "overall": None, "S": None, "T": None, "A": None, "R": None, "C": None,
-                "feedback": "", "tips": []
-            }
-            try:
-                # 서비스 시그니처: score_answer_starc(q, a, meta=None, ncs_query=None)
-                res = interview_service.score_answer_starc(
-                    q=question_db or "",
-                    a=answer,
-                    meta=session.meta or {},
-                    ncs_query=session.ncs_query or "",
-                )
-                if isinstance(res, dict):
-                    scores_block = res.get("scores") or {}
-                    overall = res.get("weighted_total")
+            # 🔹 InterviewBot 인스턴스 생성
+            meta = session.meta or {}
+            company_name = meta.get("company") or meta.get("name", "")
+            job_title = meta.get("role") or meta.get("job_title", "")
+            bot = InterviewBot(company_name=company_name, job_title=job_title)
 
-                    # overall 없으면 로컬 계산
-                    if overall is None and scores_block:
-                        try:
-                            S = float(scores_block.get("S", 0))
-                            T = float(scores_block.get("T", 0))
-                            A = float(scores_block.get("A", 0))
-                            R = float(scores_block.get("R", 0))
-                            C = float(scores_block.get("C", 0))
-                            overall = round(S*1.0 + T*1.0 + A*1.2 + R*1.2 + C*0.8, 2)
-                        except Exception:
-                            overall = None
+            # 🔹 봇을 통해 답변 분석
+            analysis_result = bot.analyze_answer(
+                question=question_db, 
+                answer=answer,
+                ncs_query=session.ncs_query or _ncs_query_from_meta(meta)
+            )
 
-                    # comments(dict) → feedback 문자열 합성
-                    comments = res.get("comments") or {}
-                    if isinstance(comments, dict) and comments:
-                        feedback_text = "\n".join(
-                            f"{k}: {v}" for k, v in comments.items() if (v or "").strip()
-                        )
-                    else:
-                        feedback_text = ""
+            if "error" in analysis_result:
+                return Response(analysis_result, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-                    tips_list = res.get("summary") or []
-
-                    scoring.update({
-                        "overall": overall,
-                        "S": scores_block.get("S"),
-                        "T": scores_block.get("T"),
-                        "A": scores_block.get("A"),
-                        "R": scores_block.get("R"),
-                        "C": scores_block.get("C"),
-                        "feedback": feedback_text,
-                        "tips": tips_list,
-                    })
-            except Exception as e:
-                log.warning("STAR-C evaluation failed: %s", e)
-
-            # 저장
-            cand_turn.scores = {k: v for k, v in scoring.items() if k in ["overall","S","T","A","R","C"] and v is not None}
-            cand_turn.feedback = scoring.get("feedback", "")
+            # 🔹 분석 결과를 DB에 저장
+            cand_turn.scores = analysis_result  # 전체 분석 결과를 JSONField에 저장
+            cand_turn.feedback = analysis_result.get("feedback", "") # 별도 feedback 필드에도 저장
             cand_turn.save(update_fields=["scores", "feedback"])
 
-            out = InterviewAnswerOut({
+            # 🔹 새로운 Serializer로 응답 반환
+            response_data = {
                 "ok": True,
                 "session_id": session.id,
                 "turn_index": cand_turn.turn_index,
-                "scores": {
-                    "overall": scoring.get("overall"),
-                    "S": scoring.get("S"),
-                    "T": scoring.get("T"),
-                    "A": scoring.get("A"),
-                    "R": scoring.get("R"),
-                    "C": scoring.get("C"),
-                },
-                "feedback": scoring.get("feedback") or "",
-                "tips": scoring.get("tips") or [],
-            })
-            return Response(out.data, status=200)
+                **analysis_result
+            }
+            out = InterviewAnswerOut(data=response_data)
+            out.is_valid(raise_exception=True)
+            return Response(out.validated_data, status=status.HTTP_200_OK)
 
-        # === 구버전(context) 경로 (호환) ===
-        scoring = {
-            "overall": None, "S": None, "T": None, "A": None, "R": None, "C": None,
-            "feedback": "", "tips": []
-        }
-        try:
-            res = interview_service.score_answer_starc(
-                q=v.get("question", "") or "",
-                a=answer,
-                meta=v.get("meta", {}) or {},
-                ncs_query="",  # 구버전은 ncs_query 미사용
-            )
-            if isinstance(res, dict):
-                scores_block = res.get("scores") or {}
-                overall = res.get("weighted_total")
-                if overall is None and scores_block:
-                    try:
-                        S = float(scores_block.get("S", 0))
-                        T = float(scores_block.get("T", 0))
-                        A = float(scores_block.get("A", 0))
-                        R = float(scores_block.get("R", 0))
-                        C = float(scores_block.get("C", 0))
-                        overall = round(S*1.0 + T*1.0 + A*1.2 + R*1.2 + C*0.8, 2)
-                    except Exception:
-                        overall = None
-
-                comments = res.get("comments") or {}
-                if isinstance(comments, dict) and comments:
-                    feedback_text = "\n".join(
-                        f"{k}: {v}" for k, v in comments.items() if (v or "").strip()
-                    )
-                else:
-                    feedback_text = ""
-
-                tips_list = res.get("summary") or []
-
-                scoring.update({
-                    "overall": overall,
-                    "S": scores_block.get("S"),
-                    "T": scores_block.get("T"),
-                    "A": scores_block.get("A"),
-                    "R": scores_block.get("R"),
-                    "C": scores_block.get("C"),
-                    "feedback": feedback_text,
-                    "tips": tips_list,
-                })
-        except Exception as e:
-            log.warning("legacy STAR-C evaluation failed: %s", e)
-
-        return Response(InterviewAnswerOut({
-            "ok": True,
-            "scores": {
-                "overall": scoring.get("overall"),
-                "S": scoring.get("S"),
-                "T": scoring.get("T"),
-                "A": scoring.get("A"),
-                "R": scoring.get("R"),
-                "C": scoring.get("C"),
-            },
-            "feedback": scoring.get("feedback") or "",
-            "tips": scoring.get("tips") or [],
-        }).data, status=200)
+        return Response({"error": "session_id is required"}, status=status.HTTP_400_BAD_REQUEST)
 
 
 class InterviewFinishAPIView(APIView):
@@ -548,7 +484,6 @@ class InterviewFinishAPIView(APIView):
 
         session_id = v.get("session_id")
 
-        # === 세션 기반 ===
         if session_id:
             try:
                 session = InterviewSession.objects.get(
@@ -557,7 +492,6 @@ class InterviewFinishAPIView(APIView):
             except InterviewSession.DoesNotExist:
                 return Response({"detail": "유효하지 않은 세션이거나 이미 종료됨"}, status=404)
 
-            # 리포트 ID 더미 생성(후속: Celery로 실제 생성)
             session.report_id = f"report-{session.id}"
             session.status = InterviewSession.Status.FINISHED
             from django.utils import timezone
@@ -569,13 +503,74 @@ class InterviewFinishAPIView(APIView):
                 "status": session.status,
             }).data, status=202)
 
-        # === 구버전(context) 경로 (호환) ===
         report_id = f"rep_{uuid.uuid4().hex[:12]}"
         return Response(InterviewFinishOut({
             "report_id": report_id,
             "status": "queued",
         }).data, status=202)
 
+class InterviewReportAPIView(APIView):
+    authentication_classes: list = []
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request, session_id: uuid.UUID, *args, **kwargs):
+        try:
+            session = InterviewSession.objects.get(id=session_id)
+        except InterviewSession.DoesNotExist:
+            return Response({"detail": "Interview session not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        # Retrieve all turns for the session
+        turns = session.turns.all().order_by('turn_index')
+
+        # Prepare transcript for report generation
+        interview_transcript = []
+        for turn in turns:
+            if turn.role == InterviewTurn.Role.CANDIDATE: # Only process candidate turns for analysis
+                interview_transcript.append({
+                    "question_num": turn.turn_index,
+                    "question": turn.question,
+                    "answer": turn.answer,
+                    "analysis": turn.scores, # Use scores field for analysis
+                    "follow_up_question": "", # Not directly stored in turn, can be derived if needed
+                    "follow_up_answer": "" # Not directly stored in turn
+                })
+
+        # Initialize RAGInterviewBot
+        rag_info = session.rag_context
+        if not rag_info: # Fallback for non-RAG mode sessions
+            meta = session.meta or {}
+            company_name = meta.get("company") or meta.get("name", "")
+            job_title = meta.get("role") or meta.get("job_title", "")
+        else:
+            company_name = rag_info.get('company_name', '')
+            job_title = rag_info.get('job_title', '')
+
+        if not company_name or not job_title:
+            return Response({"error": "Company name or job title not found in session context."}, status=status.HTTP_400_BAD_REQUEST)
+
+        container_name = rag_info.get('container_name', os.getenv('AZURE_BLOB_CONTAINER', 'interview-data'))
+        index_name = rag_info.get('index_name', f"{unidecode(company_name.lower()).replace(' ', '-')}-report-index")
+
+        rag_bot = RAGInterviewBot(
+            company_name=company_name,
+            job_title=job_title,
+            container_name=container_name,
+            index_name=index_name
+        )
+
+        # Get resume_context from the session
+        resume_context = session.resume_context
+
+        # Generate final report using the modified RAGInterviewBot method
+        try:
+            final_report_data = rag_bot.generate_final_report(interview_transcript, resume_context)
+        except Exception as e:
+            log.exception("Failed to generate final report: %s", e)
+            return Response({"error": "Failed to generate final report."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        return Response(final_report_data, status=status.HTTP_200_OK)
+        
+        
 def interview_coach_view(request):
     """Renders the AI Interview Coach page."""
     return render(request, "api/interview_coach.html")
