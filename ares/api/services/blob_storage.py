@@ -40,3 +40,19 @@ class BlobStorage:
         """컨테이너 내 파일 경로 확인용(디버그)"""
         container = self.service_client.get_container_client(self.container_name)
         return [b.name for b in container.list_blobs(name_starts_with=prefix)]
+
+    def to_prompt_dict(self, df: pd.DataFrame) -> list:
+        """프롬프트에 넣기 좋은 dict 구조로 변환"""
+        # 컬럼명 앞뒤 공백 제거
+        df.columns = df.columns.str.strip()
+
+        # 필요한 열만 선택
+        if all(col in df.columns for col in ["company_name", "detailed_description"]):
+            df = df[["company_name", "detailed_description"]]
+        else:
+            raise ValueError(f"필요한 컬럼이 없습니다. 현재 컬럼들: {df.columns.tolist()}")
+
+        # NaN 값은 빈 문자열로 변환
+        df = df.fillna("")
+
+        return df.to_dict(orient="records")

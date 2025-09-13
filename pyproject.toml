@@ -18,6 +18,7 @@ dependencies = [
     "djangorestframework-simplejwt>=5.5.1",
     "gradio>=5.44.1",
     "markdown>=3.8.2",
+    "matplotlib",
     "numpy>=2.3.3",
     "openai>=1.107.0",
     "pandas>=2.3.2",
@@ -26,7 +27,17 @@ dependencies = [
     "pypdf>=6.0.0",
     "python-docs>=0.1.0",
     "requests>=2.32.5",
-    "tqdm>=4.67.1",
+        "tqdm>=4.67.1",
+    "llama-index",
+    "llama-index-llms-azure-openai",
+    "llama-index-embeddings-azure-openai",
+    "llama-index-vector-stores-azureaisearch",
+    "llama-index-readers-file",
+    "azure-core",
+    "duckduckgo-search",
+    "python-dotenv",
+    "unidecode",
+    "PyMuPDF",
 ]
 
 [tool.ruff]

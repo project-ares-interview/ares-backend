@@ -50,6 +50,8 @@ urlpatterns = [
     path("interviews/next/", InterviewNextQuestionAPIView.as_view(), name="v1-interview-next"),
     path("interviews/answer/", InterviewSubmitAnswerAPIView.as_view(), name="v1-interview-answer"),
     path("interviews/finish/", InterviewFinishAPIView.as_view(), name="v1-interview-finish"),
+    path("interviews/report/<uuid:session_id>/", InterviewReportAPIView.as_view(), name="v1-interview-report"),
+
     # ----- Cover Letters Urls -----
     path(
         "cover-letters/",
