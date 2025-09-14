@@ -11,6 +11,7 @@ from .prompt import (
     prompt_scorer,
     prompt_coach,
     prompt_model_answer,
+    prompt_first_interview_question,
 )
 from .scoring import _BASE_KEYS, _SIGNAL_KEYS_MAP
 from .ncs_retriever import AzureNCSRetriever
@@ -48,10 +49,11 @@ class InterviewBot:
 
     def ask_first_question(self) -> str:
         """첫 번째 질문을 생성하여 '반환'합니다."""
-        interviewer_prompt = f"""너는 {self.company_name} 회사의 채용 면접관이다. 
-            {self.job_title} 직무에 관련된 면접 질문을 한 개만 생성해라.
-            다음 회사의 인재상 정보를 반드시 참고해서 질문을 만들어라: {self.company_description}
-            """
+        interviewer_prompt = prompt_first_interview_question.format(
+            company_name=self.company_name,
+            job_title=self.job_title,
+            company_description=self.company_description
+        )
         response = self.client.chat.completions.create(
             model=self.model,
             messages=[
