@@ -45,6 +45,70 @@ def _speech_config() -> Optional["SpeechConfig"]:
     return cfg
 
 # ===== STT =====
+
+class SpeechToTextFromStream:
+    """
+    오디오 스트림으로부터 실시간 STT를 수행하는 클래스.
+    세션 기반으로 동작하며, 콜백을 통해 결과를 비동기적으로 전달합니다.
+    """
+    def __init__(self, recognized_callback, locale: str = DEFAULT_LOCALE):
+        if not _ensure_sdk_and_env() or not speechsdk:
+            raise RuntimeError("Azure Speech SDK가 설정되지 않았습니다.")
+
+        self.locale = locale
+        self.recognized_callback = recognized_callback
+        self.push_stream = speechsdk.audio.PushAudioInputStream()
+        
+        self.speech_config = _speech_config()
+        if not self.speech_config:
+            raise RuntimeError("Speech 구성을 초기화할 수 없습니다.")
+        
+        self.speech_config.speech_recognition_language = self.locale
+        
+        self.audio_config = speechsdk.audio.AudioConfig(stream=self.push_stream)
+        self.speech_recognizer = speechsdk.SpeechRecognizer(
+            speech_config=self.speech_config, 
+            audio_config=self.audio_config
+        )
+
+        # 이벤트 핸들러 연결
+        self.speech_recognizer.recognized.connect(self.recognized_handler)
+        self.speech_recognizer.session_stopped.connect(self.session_stopped_handler)
+        self.speech_recognizer.canceled.connect(self.canceled_handler)
+
+        # 연속 인식 시작
+        self.speech_recognizer.start_continuous_recognition()
+        _log.info(f"실시간 STT 세션 시작 (언어: {self.locale})")
+
+    def recognized_handler(self, event: speechsdk.SpeechRecognitionEventArgs):
+        """인식 완료 이벤트 핸들러"""
+        if event.result.reason == speechsdk.ResultReason.RecognizedSpeech:
+            self.recognized_callback(event.result.text, "recognized")
+
+    def session_stopped_handler(self, event: speechsdk.SessionEventArgs):
+        """세션 중지 이벤트 핸들러"""
+        _log.info(f"STT 세션 중지됨: {event}")
+        self.stop()
+
+    def canceled_handler(self, event: speechsdk.SpeechRecognitionCanceledEventArgs):
+        """취소 이벤트 핸들러"""
+        _log.warning(f"STT 취소됨: {event.reason}, {event.error_details}")
+        self.stop()
+
+    def write_chunk(self, chunk: bytes):
+        """오디오 청크를 스트림에 씁니다."""
+        self.push_stream.write(chunk)
+
+    def stop(self):
+        """인식을 중지하고 리소스를 정리합니다."""
+        try:
+            self.speech_recognizer.stop_continuous_recognition()
+            self.push_stream.close()
+            _log.info("실시간 STT 세션 정리 완료")
+        except Exception as e:
+            _log.error(f"STT 세션 중지 중 오류 발생: {e}")
+
+
 def stt_from_file(
     wav_path: str,
     locale: str = DEFAULT_LOCALE,
