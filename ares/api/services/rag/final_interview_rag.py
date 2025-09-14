@@ -1,4 +1,3 @@
-import os
 import json
 import sys
 from openai import AzureOpenAI
@@ -6,41 +5,20 @@ from unidecode import unidecode
 import re
 import traceback
 
+from django.conf import settings
+
 # RAG 시스템 클래스를 임포트합니다.
 from .new_azure_rag_llamaindex import AzureBlobRAGSystem
 # 웹 검색 도구 임포트
 from .tool_code import google_search
-
-
-def _sanitize_json_object(text: str) -> str:
-    """모델이 섞어 보낸 마크다운/스마트쿼트/누락 쉼표 등을 정리해 JSON을 강제로 정상화."""
-    # 코드펜스/백틱 제거
-    text = re.sub(r"```(?:json)?", "", text).replace("```", "")
-    # 스마트 쿼트 -> ASCII
-    text = (
-        text
-        .replace("“", '"').replace("”", '"')
-        .replace("‘", "'").replace("’", "'")
-    )
-    # 가장 바깥 {}만 남기기 (단순 그리디)
-    m = re.search(r"\{.*\}", text, re.DOTALL)
-    if m:
-        text = m.group(0)
-
-    # 줄바꿈 경계에서 누락된 쉼표 보정: ...}\n"key" -> ...},\n"key"
-    text = re.sub(r'([}\]0-9eE"\\])\s*[\r\n]+\s*(")', r"\1,\n\2", text)
-
-    # } "key" 처럼 공백만 있고 콤마 없는 경우: } "key" -> }"key"
-    text = re.sub(r'([}\]])\s*(")', r'\1\2', text)
-
-    # 트레일링 콤마 제거: , } 또는 , ] -> } 또는 ]
-    text = re.sub(r",\s*([}\]])", r"\1", text)
-
-    # True/False/None -> true/false/null (파이썬 표기 보정)
-    text = re.sub(r"\bTrue\b", "true", text)
-    text = re.sub(r"\bFalse\b", "false", text)
-    text = re.sub(r"\bNone\b", "null", text)
-    return text.strip()
+from ares.api.services.prompt import (
+    prompt_rag_question_generation,
+    prompt_rag_answer_analysis,
+    prompt_rag_json_correction,
+    prompt_rag_follow_up_question,
+    prompt_rag_final_report,
+)
+from ares.api.utils.ai_utils import safe_extract_json
 
 
 def _debug_print_raw_json(label: str, payload: str):
@@ -55,20 +33,6 @@ def _debug_print_raw_json(label: str, payload: str):
         print(f"--- {label} RAW JSON END ---\n")
     except Exception:
         pass
-
-
-def extract_json_from_response(text: str) -> str:
-    """AI의 응답 텍스트에서 순수한 JSON 부분만 추출."""
-    # 1) 코드펜스 내 JSON 우선
-    m = re.search(r'```json\s*(\{.*\})\s*```', text, re.DOTALL)
-    if m:
-        return m.group(1)
-    # 2) 텍스트에서 가장 큰 JSON 객체(그리디)
-    m = re.search(r"\{.*\}", text, re.DOTALL)
-    if m:
-        return m.group(0)
-    # 3) 원문 반환 (최후의 수단)
-    return text
 
 
 class RAGInterviewBot:
@@ -94,23 +58,27 @@ class RAGInterviewBot:
         self.resume_context = resume_context
         self.research_context = research_context
 
-        # API 버전 키 정합성: AZURE_OPENAI_API_VERSION 우선, 없으면 API_VERSION 폴백
-        api_version = (
-            os.getenv("AZURE_OPENAI_API_VERSION")
-            or os.getenv("API_VERSION")
+        # API 정보 로드 (Django settings 사용)
+        self.endpoint = getattr(settings, 'AZURE_OPENAI_ENDPOINT', None)
+        self.api_key = getattr(settings, 'AZURE_OPENAI_KEY', None)
+        self.api_version = (
+            getattr(settings, "AZURE_OPENAI_API_VERSION", None)
+            or getattr(settings, "API_VERSION", None)
             or "2024-08-01-preview"
         )
+        self.model = (
+            getattr(settings, "AZURE_OPENAI_MODEL", None)
+            or getattr(settings, "AZURE_OPENAI_DEPLOYMENT", None)
+            or "gpt-4o"
+        )
+
+        if not self.endpoint or not self.api_key:
+            raise ValueError("Azure OpenAI endpoint/key is not set in Django settings.")
 
         self.client = AzureOpenAI(
-            azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
-            api_key=os.getenv("AZURE_OPENAI_KEY"),
-            api_version=api_version,
-        )
-        # 배포/모델명 키 호환: MODEL -> DEPLOYMENT -> 기본값
-        self.model = (
-            os.getenv("AZURE_OPENAI_MODEL")
-            or os.getenv("AZURE_OPENAI_DEPLOYMENT")
-            or "gpt-4o"
+            azure_endpoint=self.endpoint,
+            api_key=self.api_key,
+            api_version=self.api_version,
         )
 
         print("\n📊 Azure 사업 분석 RAG 시스템 연동...")
@@ -150,29 +118,16 @@ class RAGInterviewBot:
                 if ncs_titles:
                     ncs_info = f"\n\n[NCS 직무 관련 정보]\n이 직무는 다음 NCS 역량과 관련이 깊습니다: {', '.join(ncs_titles)}."
 
-            prompt = f"""
-당신은 {self.company_name}의 {self.job_title} 직무 면접관입니다.
-아래의 최신 사업 현황 데이터, 직무 기술서, 지원자 이력서, 지원자 리서치 정보, 그리고 NCS 직무 관련 정보를 바탕으로, 지원자의 분석력과 전략적 사고, 그리고 {self.job_title} 직무에 대한 전문성을 검증할 수 있는 날카로운 질문 {num_questions}개를 생성해주세요.
-특히, 제공된 직무 기술서(JD)와 NCS 정보를 참고하여 해당 직무의 핵심 역량을 파악하고, 이를 중심으로 질문을 구성해주세요.
-지원자의 이력서와 리서치 정보를 활용하여 개인 맞춤형 질문을 포함할 수 있습니다.
-반드시 JSON만 반환하세요.
-
-[최신 사업 요약]
-{business_info}
-
-[직무 기술서 (JD)]
-{self.jd_context}
-
-[지원자 이력서 요약]
-{self.resume_context}
-
-[지원자 리서치 정보]
-{self.research_context}
-{ncs_info}
-
-예시 형식:
-{{ "questions": ["생성된 질문 1", "생성된 질문 2"] }}
-            """
+            prompt = prompt_rag_question_generation.format(
+                company_name=self.company_name,
+                job_title=self.job_title,
+                num_questions=num_questions,
+                business_info=business_info,
+                jd_context=self.jd_context,
+                resume_context=self.resume_context,
+                research_context=self.research_context,
+                ncs_info=ncs_info,
+            )
 
             response = self.client.chat.completions.create(
                 model=self.model,
@@ -180,7 +135,7 @@ class RAGInterviewBot:
                 max_tokens=1000,
                 temperature=0.8,
             )
-            result = json.loads(extract_json_from_response(response.choices[0].message.content))
+            result = safe_extract_json(response.choices[0].message.content)
             questions = result.get("questions", [])
             print(f"✅ {len(questions)}개의 맞춤 질문 생성 완료.")
             return questions
@@ -195,10 +150,10 @@ class RAGInterviewBot:
         if not self.rag_ready:
             return {"error": "RAG 시스템 미준비"}
 
-        print("    (답변 분석 중...)")
+        print("     (답변 분석 중...)")
 
-        # 외부 검색 결과를 문자열로 안전 변환
         try:
+            # 외부 검색 결과를 문자열로 안전 변환
             web_result = google_search.search(queries=[f"{self.company_name} {answer}"])
             if not isinstance(web_result, str):
                 web_result = json.dumps(web_result, ensure_ascii=False)[:2000]
@@ -209,81 +164,12 @@ class RAGInterviewBot:
             f"'{answer}'라는 주장에 대한 사실관계를 확인하고 관련 데이터를 찾아줘."
         )
 
-        analysis_prompt = f"""
-당신은 시니어 사업 분석가입니다. 아래 자료를 종합하여 지원자의 답변을 상세히 평가해주세요.
-'데이터 기반 사실 분석'과 '독창적인 전략적 통찰력'을 구분하여 평가하고, 점수 대신 서술형으로 평가 의견을 제시하세요.
-
-면접 질문: {question}
-지원자 답변: {answer}
----
-[자료 1] 내부 사업 데이터: {internal_check}
-[자료 2] 외부 웹 검색 결과: {web_result}
----
-평가 지침:
-1) 주장별 사실 확인: 지원자의 핵심 주장을 1~2개 뽑아 자료 1, 2를 바탕으로 검증합니다.
-2) 내용 분석: 데이터 활용 능력과 독창적인 비즈니스 논리를 평가합니다.
-3) 피드백: 강점과 개선 제안을 서술합니다.
-        """
-
-        # JSON 스키마(안내용, response_format 미사용)
-        schema = {
-            "name": "answer_analysis",
-            "schema": {
-                "type": "object",
-                "properties": {
-                    "fact_checking": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "claim": {"type": "string"},
-                                "verification": {"type": "string"},
-                                "evidence": {"type": "string"}
-                            },
-                            "required": ["claim", "verification", "evidence"],
-                            "additionalProperties": False
-                        }
-                    },
-                    "content_analysis": {
-                        "type": "object",
-                        "properties": {
-                            "analytical_depth": {
-                                "type": "object",
-                                "properties": {
-                                    "assessment": {"type": "string"},
-                                    "comment": {"type": "string"}
-                                },
-                                "required": ["assessment", "comment"],
-                                "additionalProperties": False
-                            },
-                            "strategic_insight": {
-                                "type": "object",
-                                "properties": {
-                                    "assessment": {"type": "string"},
-                                    "comment": {"type": "string"}
-                                },
-                                "required": ["assessment", "comment"],
-                                "additionalProperties": False
-                            }
-                        },
-                        "required": ["analytical_depth", "strategic_insight"],
-                        "additionalProperties": False
-                    },
-                    "actionable_feedback": {
-                        "type": "object",
-                        "properties": {
-                            "strengths": {"type": "array", "items": {"type": "string"}},
-                            "suggestions_for_improvement": {"type": "array", "items": {"type": "string"}}
-                        },
-                        "required": ["strengths", "suggestions_for_improvement"],
-                        "additionalProperties": False
-                    }
-                },
-                "required": ["fact_checking", "content_analysis", "actionable_feedback"],
-                "additionalProperties": False
-            },
-            "strict": True
-        }
+        analysis_prompt = prompt_rag_answer_analysis.format(
+            question=question,
+            answer=answer,
+            internal_check=internal_check,
+            web_result=web_result,
+        )
 
         raw_json = ""
         try:
@@ -298,27 +184,19 @@ class RAGInterviewBot:
                 max_tokens=2000,
             )
             raw_json = response.choices[0].message.content or ""
-            # 일부 SDK는 dict로 줄 수 있음
-            if isinstance(raw_json, dict):
-                return raw_json
-
-            # 1단계: 그대로 파싱
-            try:
-                return json.loads(raw_json)
-            except json.JSONDecodeError:
-                # 1.5단계: 정규화 후 재시도
-                sanitized = _sanitize_json_object(raw_json)
-                return json.loads(sanitized)
-
+            
+            result = safe_extract_json(raw_json)
+            if result is not None:
+                return result
+            else:
+                # safe_extract_json이 None을 반환했을 경우, 추가 처리
+                raise json.JSONDecodeError("Initial JSON parsing failed, attempting self-correction", raw_json, 0)
+        
         except json.JSONDecodeError as e:
-            _debug_print_raw_json("FIRST_PASS", raw_json)
-            print(f"⚠️ JSON 파싱 실패, AI 자가 교정 시도. 오류: {e}")
+            _debug_print_raw_json("FIRST_PASS_FAILED", raw_json)
+            print(f"⚠️ JSON 파싱 실패 ({e}), AI 자가 교정 시도.")
 
-            correction_prompt = (
-                "The previous output did not parse as JSON. Return ONLY a JSON object. "
-                "Do not include code fences, markdown, or any explanation. Fix any missing commas or quotes."
-            )
-
+            correction_prompt = prompt_rag_json_correction
             try:
                 # 2차: 자가 교정
                 correction_response = self.client.chat.completions.create(
@@ -333,23 +211,23 @@ class RAGInterviewBot:
                     max_tokens=2000,
                 )
                 corrected_raw = correction_response.choices[0].message.content or ""
-                if isinstance(corrected_raw, dict):
-                    return corrected_raw
-                try:
-                    return json.loads(corrected_raw)
-                except json.JSONDecodeError:
-                    sanitized = _sanitize_json_object(corrected_raw)
-                    return json.loads(sanitized)
+                final_result = safe_extract_json(corrected_raw)
 
-            except Exception as final_e:
-                _debug_print_raw_json("CORRECTION_PASS", raw_json)
-                print(f"❌ 답변 분석 최종 실패 (수정 후에도 오류): {final_e}")
-                return {"error": f"Failed to parse AI response after self-correction: {final_e}"}
+                if final_result is not None:
+                    return final_result
+                else:
+                    _debug_print_raw_json("CORRECTION_PASS_FAILED", corrected_raw)
+                    raise json.JSONDecodeError("Failed to parse AI response after self-correction", corrected_raw, 0)
+
+            except Exception as e:
+                print(f"❌ 답변 분석 최종 실패: {e}")
+                traceback.print_exc()
+                return {"error": f"Failed to parse AI response: {e}"}
 
         except Exception as e:
-            _debug_print_raw_json("UNEXPECTED_ERROR", raw_json)
-            print(f"❌ 답변 분석 중 오류: {e}")
-            return {"error": str(e)}
+            print(f"❌ 답변 분석 실패 (일반 오류): {e}")
+            traceback.print_exc()
+            return {"error": f"Failed to analyze answer: {e}"}
 
     def print_individual_analysis(self, analysis: dict, question_num: int):
         """개별 답변에 대한 분석 결과 출력 형식"""
@@ -401,12 +279,10 @@ class RAGInterviewBot:
         """분석 결과를 바탕으로 심층 꼬리 질문 생성"""
         try:
             suggestions = analysis.get("actionable_feedback", {}).get("suggestions_for_improvement", [])
-            prompt = (
-                "기존 질문: " + original_question + "\n"
-                "지원자 답변: " + answer + "\n"
-                "답변에 대한 AI 분석 내용(개선 제안): " + ", ".join(suggestions) + "\n\n"
-                "위 상황을 바탕으로, 지원자의 논리를 더 깊게 파고들기 위한 핵심 꼬리 질문 1개만 "
-                "JSON 형식으로 생성해주세요. (예: {\"follow_up_question\": \"생성된 꼬리 질문\"})"
+            prompt = prompt_rag_follow_up_question.format(
+                original_question=original_question,
+                answer=answer,
+                suggestions=", ".join(suggestions),
             )
             response = self.client.chat.completions.create(
                 model=self.model,
@@ -414,7 +290,7 @@ class RAGInterviewBot:
                 temperature=0.7,
                 max_tokens=300
             )
-            result = json.loads(extract_json_from_response(response.choices[0].message.content))
+            result = safe_extract_json(response.choices[0].message.content)
             return result.get("follow_up_question", "")
         except Exception as e:
             print(f"❌ 꼬리 질문 생성 실패: {e}")
@@ -507,30 +383,11 @@ class RAGInterviewBot:
                     f"(개별 분석 요약: {analysis_assessment})\n---\n"
                 )
 
-            report_prompt = f"""
-당신은 시니어 채용 전문가입니다. 아래의 전체 면접 대화 및 개별 분석 요약을 종합하고, 제공된 이력서 내용을 바탕으로 지원자에 대한 '최종 역량 분석 종합 리포트'를 작성해주세요.
-
-[자료] 면접 전체 요약:
-{conversation_summary}
----
-[자료] 지원자 이력서 내용:
-{resume_context if resume_context else "제공된 이력서 내용 없음."}---
-리포트 작성 지침:
-1) 종합 총평: 지원자의 일관성, 강점, 약점을 종합하여 최종 평가를 내립니다.
-2) 핵심 역량 분석: {self.job_title} 직무에 필요한 핵심 역량(예: 문제 해결 능력, 비즈니스 이해도, 기술 전문성) 3가지를 식별하고, 면접 전체 내용을 근거로 [최상], [상], [중], [하]로 평가합니다. 각 평가에 대한 구체적인 근거를 제시해야 합니다.
-3) 성장 가능성: 면접 과정에서 보인 태도나 답변의 깊이를 바탕으로 지원자의 잠재력을 평가합니다.
-4) 이력서 피드백: 제공된 이력서 내용을 바탕으로, 직무 적합성, 강점, 개선점 등에 대한 피드백을 제공합니다.
-
-응답 형식(JSON만 반환):
-{{
-  "overall_summary": "종합적인 평가 요약...",
-  "core_competency_analysis": [
-    {{"competency": "핵심 역량 1", "assessment": "[평가 등급]", "evidence": "판단 근거..."}}
-  ],
-  "growth_potential": "지원자의 성장 가능성에 대한 코멘트...",
-  "resume_feedback": "이력서 내용에 대한 피드백..."
-}}
-            """
+            report_prompt = prompt_rag_final_report.format(
+                conversation_summary=conversation_summary,
+                resume_context=resume_context if resume_context else "제공된 이력서 내용 없음.",
+                job_title=self.job_title,
+            )
 
             response = self.client.chat.completions.create(
                 model=self.model,
@@ -538,7 +395,7 @@ class RAGInterviewBot:
                 temperature=0.3,
                 max_tokens=3000,
             )
-            report_data = json.loads(extract_json_from_response(response.choices[0].message.content))
+            report_data = safe_extract_json(response.choices[0].message.content)
             return report_data
 
         except Exception as e:

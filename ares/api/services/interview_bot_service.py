@@ -12,9 +12,10 @@ from django.conf import settings
 from ares.api.services.blob_storage import BlobStorage
 from ares.api.services.prompt import (
     prompt_identifier, prompt_extractor, prompt_scorer,
-    prompt_coach, prompt_model_answer
+    prompt_coach, prompt_model_answer, prompt_first_interview_question
 )
 from ares.api.services.scoring import _BASE_KEYS, _SIGNAL_KEYS_MAP
+from ares.api.utils.ai_utils import safe_extract_json
 
 # RAG/NCS search utils for context injection
 try:
@@ -97,11 +98,10 @@ class InterviewBot:
         self.conversation_history = []
 
     def ask_question(self) -> str:
-        interviewer_prompt = (
-            f"너는 {self.company_keyword} 회사의 채용 면접관이야.\n"
-            f"나를 면접대상자로 간주하고 {self.job_title} 직무에 관련된 면접 질문을 한 개만 해줘.\n"
-            f"아래 인재상/설명도 참고해서 질문해줘:\n\n"
-            f"{self.company_description}\n"
+        interviewer_prompt = prompt_first_interview_question.format(
+            company_name=self.company_keyword,
+            job_title=self.job_title,
+            company_description=self.company_description,
         )
         try:
             # ✅ 이중 중괄호 제거, 올바른 리스트/딕셔너리
@@ -139,7 +139,7 @@ class InterviewBot:
                 max_tokens=200,
                 temperature=0.0,
             )
-            identified = safe_json_loads(r1.choices[0].message.content, default={})
+            identified = safe_extract_json(r1.choices[0].message.content, default={})
             frameworks = identified.get("frameworks", [])
             if not frameworks:
                 return {"error": "프레임워크 식별 실패: 결과 없음"}
@@ -181,7 +181,7 @@ class InterviewBot:
                     max_tokens=1500,
                     temperature=0.1,
                 )
-                cleaned2 = safe_json_loads(r2.choices[0].message.content, default={})
+                cleaned2 = safe_extract_json(r2.choices[0].message.content, default={})
                 summaries.update(cleaned2)
 
                 # 3) Scorer (with RAG context)
@@ -201,7 +201,7 @@ class InterviewBot:
                     max_tokens=1000,
                     temperature=0.0,
                 )
-                cleaned3 = safe_json_loads(r3.choices[0].message.content, default={})
+                cleaned3 = safe_extract_json(r3.choices[0].message.content, default={})
                 scores_all.update((cleaned3.get("scores") or {}))
                 if "scoring_reason" in cleaned3 and cleaned3["scoring_reason"]:
                     reasons.append(cleaned3["scoring_reason"])
@@ -223,7 +223,7 @@ class InterviewBot:
                 max_tokens=1500,
                 temperature=0.7,
             )
-            feedback = safe_json_loads(r4.choices[0].message.content, default={})
+            feedback = safe_extract_json(r4.choices[0].message.content, default={})
             final_result.update(feedback)
 
             # 5) Role Model (with RAG context)
@@ -245,7 +245,7 @@ class InterviewBot:
                 max_tokens=1500,
                 temperature=0.5,
             )
-            final_result.update(safe_json_loads(r5.choices[0].message.content, default={}))
+            final_result.update(safe_extract_json(r5.choices[0].message.content, default={}))
 
             return final_result
 
