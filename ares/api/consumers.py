@@ -13,6 +13,7 @@ from channels.generic.websocket import AsyncJsonWebsocketConsumer
 from ares.api.services.interview_metrics import InterviewMetrics
 from ares.api.services.interview_analysis_service import get_detailed_analysis_data, process_frame
 from ares.api.services.openai_advisor import InterviewAdvisor
+from ares.api.services.speech_service import SpeechToTextFromStream
 
 # ==============================================================================
 # Session and AI Advisor Management
@@ -111,6 +112,13 @@ class InterviewConsumer(AsyncJsonWebsocketConsumer):
         self.loop = asyncio.get_running_loop()
         await self.accept()
 
+        def stt_callback(text, event_type):
+            """Callback function to handle recognized speech."""
+            asyncio.run_coroutine_threadsafe(
+                self.send_json({"event": "speech_update", "data": {"text": text, "type": event_type}}),
+                self.loop
+            )
+
         with session_lock:
             print(f"[{self.sid}] 새로운 세션 생성 중...")
             client_sessions[self.sid] = {
@@ -120,13 +128,21 @@ class InterviewConsumer(AsyncJsonWebsocketConsumer):
                 "processing_active": True,
                 "processing_thread": None,
                 "metrics_thread": None,
+                "stt_recognizer": None,
             }
             print(f"[{self.sid}] 세션 생성 완료. 현재 활성 세션: {len(client_sessions)}")
 
-        # Start worker threads
+        # Start worker threads and STT
         session = client_sessions[self.sid]
         session["processing_thread"] = threading.Thread(target=process_frame_worker, args=(self.sid, self), daemon=True)
         session["metrics_thread"] = threading.Thread(target=metrics_sender_worker, args=(self.sid, self), daemon=True)
+        try:
+            session["stt_recognizer"] = SpeechToTextFromStream(recognized_callback=stt_callback)
+        except Exception as e:
+            print(f"[{self.sid}] STT Recognizer 초기화 실패: {e}")
+            await self.send_json({"event": "error", "data": {"message": "Speech recognition could not be initialized."}})
+
+
         session["processing_thread"].start()
         session["metrics_thread"].start()
 
@@ -139,6 +155,9 @@ class InterviewConsumer(AsyncJsonWebsocketConsumer):
             session = client_sessions.pop(self.sid, None)
             if session:
                 session["processing_active"] = False
+                # Stop STT recognizer
+                if session.get("stt_recognizer"):
+                    session["stt_recognizer"].stop()
                 # Poison pill to stop frame worker if it's waiting on the queue
                 try:
                     session["frame_queue"].put_nowait(None)
@@ -153,6 +172,7 @@ class InterviewConsumer(AsyncJsonWebsocketConsumer):
 
         handler_map = {
             "video_frame": self.handle_video_frame,
+            "audio_chunk": self.handle_audio_chunk,
             "toggle_analysis": self.handle_toggle_analysis,
             "reset_metrics": self.handle_reset_metrics,
             "get_summary": self.handle_get_summary,
@@ -183,6 +203,26 @@ class InterviewConsumer(AsyncJsonWebsocketConsumer):
                         session["frame_queue"].put(frame)
         except Exception as e:
             print(f"[{self.sid}] 비디오 프레임 처리 오류: {e}")
+
+    async def handle_audio_chunk(self, data):
+        """Handles incoming audio chunks."""
+        session = client_sessions.get(self.sid)
+        if not session:
+            return
+        
+        stt_recognizer = session.get("stt_recognizer")
+        if not stt_recognizer:
+            return
+
+        try:
+            audio_data = data.get("audio")
+            if audio_data:
+                # The audio data is expected to be a base64 encoded string of a raw audio chunk
+                decoded_audio = base64.b64decode(audio_data)
+                stt_recognizer.write_chunk(decoded_audio)
+        except Exception as e:
+            print(f"[{self.sid}] 오디오 청크 처리 오류: {e}")
+
 
     async def handle_toggle_analysis(self, data):
         """Toggles the analysis state."""
