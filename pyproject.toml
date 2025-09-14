@@ -3,7 +3,7 @@ name = "ares-backend"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.11.9"
+requires-python = "==3.11.*"
 dependencies = [
     "azure-ai-documentintelligence>=1.0.2",
     "azure-cognitiveservices-speech>=1.45.0",
@@ -19,17 +19,22 @@ dependencies = [
     "djangorestframework>=3.16.1",
     "djangorestframework-simplejwt>=5.5.1",
     "gradio>=5.44.1",
+    "librosa~=0.11.0",
+    "llvmlite~=0.43.0",
     "markdown>=3.8.2",
     "mediapipe>=0.10.14",
-    "numpy>=2.3.3",
+    "numba>=0.60.0,<0.61.dev0",
+    "numpy~=1.26.0",
     "openai>=1.107.0",
     "opencv-python>=4.11.0.86",
     "pandas>=2.3.2",
+    "praat-parselmouth>=0.4.3",
     "pdfplumber>=0.11.7",
     "pyarrow>=21.0.0",
     "pypdf>=6.0.0",
     "python-docs>=0.1.0",
     "requests>=2.32.5",
+    "setuptools<58",
     "tqdm>=4.67.1",
 ]
 

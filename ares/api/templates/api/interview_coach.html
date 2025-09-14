@@ -3,1073 +3,168 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🤖 AI 면접 코치 - 음성 및 영상 통합 분석</title>
+    <title>Ares AI Interview Coach - 최종 분석</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
+        :root {
+            --bg-main: #f4f7f9;
+            --bg-panel: #ffffff;
+            --primary-color: #2c5282;
+            --secondary-color: #38a169;
+            --text-primary: #2d3748;
+            --text-secondary: #718096;
+            --border-color: #e2e8f0;
+            --shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
         }
-        
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: #333;
-            min-height: 100vh;
-            overflow-x: hidden;
-        }
-        
-        .container {
-            max-width: 1600px;
-            margin: 0 auto;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-main);
+            color: var(--text-primary);
+            margin: 0;
             padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
         }
-        
-        .header {
-            text-align: center;
-            color: white;
-            margin-bottom: 30px;
-            position: relative;
+        .container {
+            width: 100%;
+            max-width: 1200px;
         }
-        
-        .header h1 {
-            font-size: 2.8rem;
-            margin-bottom: 10px;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
-        }
-        
-        .header p {
-            font-size: 1.3rem;
-            opacity: 0.9;
-            margin-bottom: 10px;
-        }
-        
-        .ai-badge {
-            background: linear-gradient(45deg, #4CAF50, #45a049);
-            padding: 8px 20px;
-            border-radius: 25px;
-            font-size: 1rem;
-            font-weight: 600;
-            color: white;
-            box-shadow: 0 4px 15px rgba(76, 175, 80, 0.3);
-            display: inline-block;
-            margin-top: 10px;
-        }
-        
-        .main-layout {
-            display: grid;
-            grid-template-columns: 1fr 450px 400px;
-            gap: 20px;
+        .panel {
+            background-color: var(--bg-panel);
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: var(--shadow);
             margin-bottom: 20px;
         }
-        
-        .video-section {
-            background: white;
-            border-radius: 15px;
-            padding: 20px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-            position: relative;
-        }
-        
         .video-container {
             position: relative;
+            width: 100%;
+            aspect-ratio: 16 / 9;
             background: #000;
-            border-radius: 10px;
+            border-radius: 8px;
             overflow: hidden;
-            margin-bottom: 15px;
-            width: 100%;
-            aspect-ratio: 640 / 480;
         }
-        
-        #localVideo {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-            border-radius: 10px;
-        }
-        
-        .session-timer {
-            position: absolute;
-            top: 10px;
-            left: 10px;
-            background: rgba(0,0,0,0.8);
-            color: white;
-            padding: 8px 12px;
-            border-radius: 6px;
-            font-family: 'Courier New', monospace;
-            font-size: 1.1rem;
-            font-weight: bold;
-        }
-        
-        .fps-counter {
-            position: absolute;
-            top: 10px;
-            right: 10px;
-            background: rgba(0,0,0,0.7);
-            color: white;
-            padding: 5px 10px;
-            border-radius: 5px;
-            font-size: 0.9rem;
-        }
-        
-        .controls {
-            display: flex;
-            gap: 10px;
-            flex-wrap: wrap;
-            margin-bottom: 15px;
-        }
-        
+        #localVideo { width: 100%; height: 100%; object-fit: cover; }
+        .controls { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
         .btn {
-            padding: 12px 20px;
+            padding: 12px 24px;
             border: none;
             border-radius: 8px;
-            cursor: pointer;
             font-weight: 600;
-            transition: all 0.3s ease;
-            flex: 1;
-            min-width: 120px;
-            font-size: 0.9rem;
-        }
-        
-        .btn-primary {
-            background: #4CAF50;
-            color: white;
-        }
-        
-        .btn-primary:hover {
-            background: #45a049;
-            transform: translateY(-2px);
-        }
-        
-        .btn-danger {
-            background: #f44336;
-            color: white;
-        }
-        
-        .btn-danger:hover {
-            background: #da190b;
-            transform: translateY(-2px);
-        }
-        
-        .btn-ai {
-            background: linear-gradient(45deg, #2196F3, #21CBF3);
-            color: white;
+            cursor: pointer;
+            transition: all 0.2s ease;
             font-size: 1rem;
-            font-weight: 700;
         }
-        
-        .btn-ai:hover {
-            background: linear-gradient(45deg, #1976D2, #0288D1);
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(33, 150, 243, 0.3);
-        }
-        
-        .btn-ai:disabled {
-            background: #ccc;
-            cursor: not-allowed;
-            transform: none;
-        }
-        
-        .btn-secondary {
-            background: #6c757d;
-            color: white;
-        }
-        
-        .btn-secondary:hover {
-            background: #545b62;
-            transform: translateY(-2px);
-        }
-        
-        .btn:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-            transform: none;
-        }
-        
-        .metrics-panel {
-            background: white;
-            border-radius: 15px;
-            padding: 20px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-            max-height: 80vh;
-            overflow-y: auto;
-        }
-        
-        .metrics-panel h3 {
-            margin-bottom: 20px;
-            color: #333;
-            text-align: center;
-            font-size: 1.3rem;
-        }
-        
-        .metrics-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 12px;
-            margin-bottom: 20px;
-        }
-        
-        .metric-item {
-            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-            padding: 12px;
-            border-radius: 10px;
-            text-align: center;
-            transition: transform 0.3s ease;
-            position: relative;
-        }
-        
-        .metric-item:hover {
-            transform: translateY(-3px);
-        }
-        
-        .metric-icon {
-            font-size: 1.3rem;
-            margin-bottom: 5px;
-        }
-        
-        .metric-value {
-            font-size: 1.6rem;
-            font-weight: bold;
-            color: #333;
-            margin-bottom: 3px;
-        }
-        
-        .metric-label {
-            font-size: 0.8rem;
-            color: #666;
-            font-weight: 500;
-        }
-        
-        .metric-wide {
-            grid-column: span 2;
-        }
-        
-        .ai-panel {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            border-radius: 15px;
-            padding: 20px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
-            color: white;
-            max-height: 80vh;
-            overflow-y: auto;
-        }
-        
-        .ai-panel h3 {
-            margin-bottom: 20px;
-            text-align: center;
-            font-size: 1.4rem;
-            text-shadow: 1px 1px 2px rgba(0,0,0,0.3);
-        }
-        
-        .ai-status {
-            text-align: center;
-            padding: 20px;
-            background: rgba(255,255,255,0.1);
-            border-radius: 10px;
-            margin-bottom: 20px;
-        }
-        
-        .ai-thinking {
-            display: none;
-            text-align: center;
-            padding: 20px;
-            background: rgba(255,255,255,0.1);
-            border-radius: 10px;
-            margin-bottom: 20px;
-        }
-        
-        .ai-thinking .spinner {
-            width: 40px;
-            height: 40px;
-            border: 4px solid rgba(255,255,255,0.3);
-            border-top: 4px solid white;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-            margin: 0 auto 10px;
-        }
-        
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-        
-        .ai-advice {
-            background: rgba(255,255,255,0.95);
-            color: #333;
-            padding: 20px;
-            border-radius: 10px;
-            margin-top: 15px;
-            line-height: 1.6;
-            box-shadow: inset 0 2px 10px rgba(0,0,0,0.1);
-        }
-        
-        .ai-advice h4 {
-            color: #2196F3;
-            margin-bottom: 10px;
+        .btn-primary { background-color: var(--primary-color); color: white; }
+        .btn-primary:hover { background-color: #1a365d; }
+        .btn-danger { background-color: #e53e3e; color: white; }
+        .btn-danger:hover { background-color: #c53030; }
+        .btn:disabled { background-color: #cbd5e0; cursor: not-allowed; }
+
+        #transcription {
+            background: #f7fafc;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 16px;
+            min-height: 80px;
             font-size: 1.1rem;
+            line-height: 1.6;
+            color: var(--text-secondary);
         }
-        
-        .ai-advice p {
-            margin-bottom: 12px;
+        #analysis-status {
+            text-align: center;
+            padding: 20px;
+            font-size: 1.2rem;
+            font-weight: 600;
+            border-radius: 8px;
+            display: none;
         }
-        
-        .ai-advice ul {
-            padding-left: 20px;
-            margin-bottom: 15px;
-        }
-        
-        .ai-advice li {
-            margin-bottom: 8px;
-        }
-        
-        .ai-advice strong {
-            color: #1976D2;
-        }
-        
-        .status-panel {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
+        .status-pending { background-color: #fefcbf; color: #92400e; }
+        .status-success { background-color: #d1fae5; color: #065f46; }
+
+        .results-container { display: none; }
+        table {
+            width: 100%;
+            border-collapse: collapse;
             margin-top: 20px;
         }
-        
-        .status-item {
-            background: white;
-            border-radius: 10px;
-            padding: 15px;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
-            text-align: center;
+        th, td {
+            border: 1px solid var(--border-color);
+            padding: 12px 16px;
+            text-align: left;
         }
-        
-        .status-indicator {
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            display: inline-block;
-            margin-right: 8px;
-        }
-        
-        .status-connected {
-            background: #4CAF50;
-        }
-        
-        .status-disconnected {
-            background: #f44336;
-        }
-        
-        .status-analyzing {
-            background: #2196F3;
-        }
-        
-        .status-waiting {
-            background: #ff9800;
-        }
-        
-        .connection-status {
-            text-align: center;
-            padding: 10px;
-            border-radius: 8px;
-            margin-bottom: 15px;
+        th {
+            background-color: #edf2f7;
             font-weight: 600;
+            font-size: 1.1rem;
         }
-        
-        .connection-success {
-            background: #d4edda;
-            color: #155724;
-            border: 1px solid #c3e6cb;
-        }
-        
-        .connection-error {
-            background: #f8d7da;
-            color: #721c24;
-            border: 1px solid #f5c6cb;
-        }
-        
-        .connection-warning {
-            background: #fff3cd;
-            color: #856404;
-            border: 1px solid #ffeaa7;
-        }
-        
-        .scientific-info {
-            background: rgba(255,255,255,0.1);
-            border: 1px solid rgba(255,255,255,0.2);
-            border-radius: 8px;
-            padding: 15px;
-            margin-top: 15px;
-            font-size: 0.9rem;
-        }
-        
-        .scientific-info h4 {
-            color: #FFE082;
-            margin-bottom: 10px;
-            font-size: 1rem;
-        }
-        
-        .scientific-info p {
-            margin-bottom: 5px;
-            opacity: 0.9;
-        }
-        
-        .debug-panel {
-            background: #1e1e1e;
-            color: #f8f8f2;
-            border-radius: 10px;
-            padding: 15px;
-            font-family: 'Courier New', monospace;
-            font-size: 0.8rem;
-            max-height: 200px;
-            overflow-y: auto;
-            margin-top: 15px;
-        }
-
-        .transcription-panel {
-            background: rgba(0,0,0,0.7);
-            color: #fff;
-            border-radius: 8px;
-            padding: 15px;
-            margin-top: 15px;
-            min-height: 100px;
-        }
-
-        .transcription-panel h4 {
-            margin-bottom: 10px;
-            color: #ddd;
-        }
-        
-        @media (max-width: 1200px) {
-            .main-layout {
-                grid-template-columns: 1fr 1fr;
-            }
-            
-            .ai-panel {
-                grid-column: span 2;
-                max-height: 60vh;
-            }
-        }
-        
-        @media (max-width: 768px) {
-            .main-layout {
-                grid-template-columns: 1fr;
-            }
-            
-            .metrics-grid {
-                grid-template-columns: 1fr;
-            }
-            
-            .header h1 {
-                font-size: 2rem;
-            }
-            
-            .controls {
-                flex-direction: column;
-            }
-        }
-        
-        .pulse {
-            animation: pulse 2s infinite;
-        }
-        
-        @keyframes pulse {
-            0% { opacity: 1; }
-            50% { opacity: 0.5; }
-            100% { opacity: 1; }
-        }
-        
-        .metric-new {
-            border: 2px solid #4CAF50;
-            background: linear-gradient(135deg, #e8f5e8 0%, #c8e6c9 100%);
-        }
-
-        .tooltip {
-            position: relative;
-            display: inline-block;
-            cursor: help;
-        }
-
-        .tooltip .tooltiptext {
-            visibility: hidden;
-            width: 200px;
-            background-color: #333;
-            color: #fff;
-            text-align: center;
-            border-radius: 6px;
-            padding: 8px;
-            position: absolute;
-            z-index: 1;
-            bottom: 125%;
-            left: 50%;
-            margin-left: -100px;
-            font-size: 0.8rem;
-            line-height: 1.3;
-        }
-
-        .tooltip:hover .tooltiptext {
-            visibility: visible;
-        }
+        td:first-child { font-weight: 500; color: var(--text-secondary); width: 30%; }
+        td:last-child { font-weight: 600; font-size: 1.1rem; }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="header">
-            <h1>🤖 AI 면접 코치</h1>
-            <p>과학적 근거 기반 실시간 행동 분석 및 AI 조언</p>
-            <div class="ai-badge">
-                Azure OpenAI 기반 전문 면접 컨설팅
+        <div class="panel video-panel">
+            <h2>AI 면접 코칭</h2>
+            <div class="video-container">
+                <video id="localVideo" autoplay playsinline muted></video>
             </div>
         </div>
-        
-        <div class="main-layout">
-            <!-- 비디오 섹션 -->
-            <div class="video-section">
-                <div id="connectionStatus" class="connection-status connection-warning">
-                    <span class="status-indicator status-disconnected"></span>
-                    연결 확인 중...
-                </div>
-                
-                <div class="video-container">
-                    <video id="localVideo" autoplay playsinline muted></video>
-                    <canvas id="canvas" style="display: none;"></canvas>
-                    <div class="session-timer" id="sessionTimer">00:00</div>
-                    <div class="fps-counter">
-                        FPS: <span id="fpsCounter">0</span>
-                    </div>
-                </div>
-                
-                <div class="controls">
-                    <button id="resetBtn" class="btn btn-secondary">초기화</button>
-                    <button id="summaryBtn" class="btn btn-secondary">요약</button>
-                    <button id="startBtn" class="btn btn-primary">분석 시작</button>
-                    <button id="stopBtn" class="btn btn-danger" style="display: none;">분석 완료</button>
-                </div>
-                
-                <div class="controls">
-                    <button id="getAdviceBtn" class="btn btn-ai" disabled>🤖 AI 조언 받기</button>
-                </div>
-
-                <div class="transcription-panel">
-                    <h4>🎤 실시간 음성 인식</h4>
-                    <div id="transcription">면접 분석을 시작하면 음성 인식이 활성화됩니다...</div>
-                </div>
-                
-                <div class="scientific-info">
-                    <h4>📊 과학적 기준 안내</h4>
-                    <p><strong>눈 깜빡임:</strong> 정상 12-20회/분, 25회 이상시 스트레스</p>
-                    <p><strong>미소 비율:</strong> 적정 25-40%, 15% 미만시 경직된 인상</p>
-                    <p><strong>손 제스쳐:</strong> 적정 2-8회/분, 12회 이상시 산만함</p>
-                    <p><strong>자세 안정성:</strong> 80점 이상 양호, 50점 미만 불안정</p>
-                    <p><strong>끄덕임:</strong> 3-8회 적절, 15회 이상 과도함</p>
-                </div>
+        <div class="panel controls-panel">
+            <div class="controls">
+                <button id="startBtn" class="btn btn-primary">분석 시작</button>
+                <button id="finishBtn" class="btn btn-danger" disabled>분석 종료 및 결과 확인</button>
             </div>
-            
-            <!-- 메트릭 패널 -->
-            <div class="metrics-panel">
-                <h3>📊 실시간 지표</h3>
-                <div class="metrics-grid">
-                    <div class="metric-item tooltip">
-                        <div class="metric-icon">👁</div>
-                        <div class="metric-value" id="blinkCount">0</div>
-                        <div class="metric-label">깜빡임 (회)</div>
-                        <span class="tooltiptext">정상: 12-20회/분<br>25회 이상시 스트레스 신호</span>
-                    </div>
-                    
-                    <div class="metric-item tooltip">
-                        <div class="metric-icon">📐</div>
-                        <div class="metric-value" id="blinkRate">0.0</div>
-                        <div class="metric-label">깜빡임률 (/분)</div>
-                        <span class="tooltiptext">Eye Aspect Ratio<br>눈 개폐 정도 측정</span>
-                    </div>
-                    
-                    <div class="metric-item tooltip">
-                        <div class="metric-icon">😊</div>
-                        <div class="metric-value" id="smileTime">0.0</div>
-                        <div class="metric-label">미소 시간 (초)</div>
-                        <span class="tooltiptext">적정 비율: 25-40%<br>15% 미만시 경직된 인상</span>
-                    </div>
-                    
-                    <div class="metric-item tooltip">
-                        <div class="metric-icon">📊</div>
-                        <div class="metric-value" id="smilePercent">0%</div>
-                        <div class="metric-label">미소 비율</div>
-                        <span class="tooltiptext">전체 시간 대비<br>미소 지속 비율</span>
-                    </div>
-                    
-                    <div class="metric-item tooltip">
-                        <div class="metric-icon">👍</div>
-                        <div class="metric-value" id="nodCount">0</div>
-                        <div class="metric-label">끄덕임 (회)</div>
-                        <span class="tooltiptext">적정: 3-8회<br>15회 이상시 과도함</span>
-                    </div>
-                    
-                    <div class="metric-item tooltip">
-                        <div class="metric-icon">↔️</div>
-                        <div class="metric-value" id="shakeCount">0</div>
-                        <div class="metric-label">좌우 흔들기 (회)</div>
-                        <span class="tooltiptext">5회 이상시<br>부정적 신호 가능</span>
-                    </div>
-                    
-                    <div class="metric-item tooltip">
-                        <div class="metric-icon">📱</div>
-                        <div class="metric-value" id="postureSway">0</div>
-                        <div class="metric-label">자세 흔들림 (회)</div>
-                        <span class="tooltiptext">어깨 중심점 기준<br>움직임 감지</span>
-                    </div>
-                    
-                    <div class="metric-item tooltip">
-                        <div class="metric-icon">🎯</div>
-                        <div class="metric-value" id="postureScore">100</div>
-                        <div class="metric-label">자세 안정성</div>
-                        <span class="tooltiptext">80점 이상 양호<br>50점 미만 불안정</span>
-                    </div>
-                    
-                    <div class="metric-item metric-new tooltip">
-                        <div class="metric-icon">👋</div>
-                        <div class="metric-value" id="handGestureCount">0</div>
-                        <div class="metric-label">손 제스쳐 (회)</div>
-                        <span class="tooltiptext">적정: 2-8회/분<br>12회 이상시 산만함</span>
-                    </div>
-                    
-                    <div class="metric-item metric-new tooltip">
-                        <div class="metric-icon">⏱️</div>
-                        <div class="metric-value" id="gestureRate">0.0</div>
-                        <div class="metric-label">제스쳐 빈도 (/분)</div>
-                        <span class="tooltiptext">분당 제스쳐 횟수<br>Communication Research 기준</span>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- AI 조언 패널 -->
-            <div class="ai-panel">
-                <h3>🤖 AI 면접 조언</h3>
-                
-                <div id="aiStatus" class="ai-status">
-                    <div class="status-indicator status-waiting"></div>
-                    면접 분석을 완료한 후 AI 조언을 받을 수 있습니다.
-                    <br><small>과학적 근거와 통계 기반으로 정확한 피드백을 제공합니다.</small>
-                </div>
-                
-                <div id="aiThinking" class="ai-thinking">
-                    <div class="spinner"></div>
-                    <p><strong>AI가 분석 중입니다...</strong></p>
-                    <small>과학적 데이터를 종합하여 맞춤형 조언을 생성하고 있습니다.</small>
-                </div>
-                
-                <div id="aiAdvice"></div>
-            </div>
+            <h4>실시간 답변</h4>
+            <div id="transcription">분석 시작 버튼을 누르면 음성 인식이 시작됩니다.</div>
         </div>
-        
-        <div class="status-panel">
-            <div class="status-item">
-                <h4>연결 상태</h4>
-                <div id="connectionStatusText">
-                    <span class="status-indicator status-disconnected"></span>
-                    대기 중
-                </div>
-            </div>
-            
-            <div class="status-item">
-                <h4>분석 상태</h4>
-                <div id="analysisStatusText">
-                    <span class="status-indicator status-waiting"></span>
-                    준비 중
-                </div>
-            </div>
-            
-            <div class="status-item">
-                <h4>프레임 수</h4>
-                <div id="frameCount">0</div>
-            </div>
-            
-            <div class="status-item">
-                <h4>분석 시간</h4>
-                <div id="analysisTime">00:00</div>
-            </div>
-            
-            <div class="status-item">
-                <h4>AI 조언 상태</h4>
-                <div id="aiStatusText">
-                    <span class="status-indicator status-waiting"></span>
-                    대기 중
-                </div>
-            </div>
-        </div>
-        
-        <div class="debug-panel">
-            <div id="debugInfo">🤖 AI 면접 코치 시스템이 준비되었습니다. 과학적 근거 기반 분석을 시작하세요...</div>
+        <div id="analysis-status" class="panel"></div>
+        <div id="resultsContainer" class="panel results-container">
+            <h2>최종 분석 결과</h2>
+            <div id="results-tables"></div>
         </div>
     </div>
 
     <script>
-        // WebSocket 연결
-        let socket;
+        const elems = {
+            video: document.getElementById('localVideo'),
+            startBtn: document.getElementById('startBtn'),
+            finishBtn: document.getElementById('finishBtn'),
+            transcription: document.getElementById('transcription'),
+            analysisStatus: document.getElementById('analysis-status'),
+            resultsContainer: document.getElementById('resultsContainer'),
+            resultsTables: document.getElementById('results-tables'),
+        };
 
-        // 상태 변수
-        let isAnalyzing = false;
-        let sessionStartTime = Date.now();
-        let analysisStartTime = null;
-        let analysisEndTime = null;
-        let fpsCounter = 0;
-        let lastFpsTime = Date.now();
-        let frameSenderInterval = null;
-        let mediaRecorder;
-        let localStream;
-        
-        // DOM 요소
-        const videoElement = document.getElementById('localVideo');
-        const canvasElement = document.getElementById('canvas');
-        const startBtn = document.getElementById('startBtn');
-        const stopBtn = document.getElementById('stopBtn');
-        const resetBtn = document.getElementById('resetBtn');
-        const summaryBtn = document.getElementById('summaryBtn');
-        const getAdviceBtn = document.getElementById('getAdviceBtn');
-        const connectionStatus = document.getElementById('connectionStatus');
-        const debugInfo = document.getElementById('debugInfo');
-        const transcriptionEl = document.getElementById('transcription');
-        
-        // FPS 계산
-        setInterval(() => {
-            const now = Date.now();
-            const elapsed = now - lastFpsTime;
-            if (elapsed >= 1000) {
-                document.getElementById('fpsCounter').textContent = fpsCounter;
-                fpsCounter = 0;
-                lastFpsTime = now;
-            }
-        }, 100);
-        
-        // 세션 타이머 업데이트
-        setInterval(() => {
-            const now = Date.now();
-            
-            const totalElapsed = Math.floor((now - sessionStartTime) / 1000);
-            const totalMinutes = Math.floor(totalElapsed / 60);
-            const totalSeconds = totalElapsed % 60;
-            document.getElementById('sessionTimer').textContent = 
-                `${totalMinutes.toString().padStart(2, '0')}:${totalSeconds.toString().padStart(2, '0')}`;
-            
-            if (analysisStartTime && !analysisEndTime) {
-                const analysisElapsed = Math.floor((now - analysisStartTime) / 1000);
-                const analysisMinutes = Math.floor(analysisElapsed / 60);
-                const analysisSeconds = analysisElapsed % 60;
-                document.getElementById('analysisTime').textContent = 
-                    `${analysisMinutes.toString().padStart(2, '0')}:${analysisSeconds.toString().padStart(2, '0')}`;
-            } else if (analysisEndTime) {
-                const analysisTotal = Math.floor((analysisEndTime - analysisStartTime) / 1000);
-                const analysisMinutes = Math.floor(analysisTotal / 60);
-                const analysisSeconds = analysisTotal % 60;
-                document.getElementById('analysisTime').textContent = 
-                    `${analysisMinutes.toString().padStart(2, '0')}:${analysisSeconds.toString().padStart(2, '0')} (완료)`;
-            }
-        }, 1000);
+        let socket, localStream, mediaRecorder;
+
+        window.addEventListener('load', () => {
+            setupMedia();
+            setupWebSocket();
+        });
+
+        function setupMedia() {
+            navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 }, audio: true })
+                .then(stream => {
+                    localStream = stream;
+                    elems.video.srcObject = stream;
+                    setupAudioRecording(stream);
+                })
+                .catch(err => alert('카메라/마이크 권한을 확인해주세요.'));
+        }
 
         function setupWebSocket() {
             const wsScheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
             const wsPath = `${wsScheme}://${window.location.host}/ws/interview/coach/`;
-            log(`서버에 연결 중: ${wsPath}`);
             socket = new WebSocket(wsPath);
-
-            socket.onopen = (event) => {
-                log('✅ AI 면접 코치 서버 연결 성공');
-                updateConnectionStatus('connected', '연결됨');
-            };
-
-            socket.onclose = (event) => {
-                log(`❌ 서버 연결 끊김: 코드=${event.code}, 이유=${event.reason}`);
-                updateConnectionStatus('disconnected', '연결 끊김');
-            };
-
-            socket.onerror = (error) => {
-                log(`❌ 연결 오류: ${error.message}`);
-                updateConnectionStatus('error', '연결 오류');
-            };
-
             socket.onmessage = (event) => {
                 const content = JSON.parse(event.data);
-                const eventName = content.event;
-                const data = content.data;
-
-                handleSocketEvent(eventName, data);
+                handleSocketEvent(content.event, content.data);
             };
-        }
-
-        function handleSocketEvent(eventName, data) {
-            switch (eventName) {
-                case 'connection_status':
-                    log(`서버로부터 연결 상태 수신: ${data.status}`);
-                    break;
-                case 'metrics_update':
-                    fpsCounter++;
-                    updateMetrics(data);
-                    break;
-                case 'speech_update':
-                    log(`🎤 음성 인식 결과: ${data.text}`);
-                    transcriptionEl.textContent = data.text;
-                    break;
-                case 'analysis_status':
-                    log(`📊 분석 상태 업데이트: ${data.analyzing ? '시작' : '완료'}`);
-                    isAnalyzing = data.analyzing;
-                    if (isAnalyzing) {
-                        analysisStartTime = Date.now();
-                        analysisEndTime = null;
-                        startSendingFrames();
-                        startRecording();
-                    } else {
-                        analysisEndTime = Date.now();
-                        stopSendingFrames();
-                        stopRecording();
-                        getAdviceBtn.disabled = false;
-                        updateAiStatus('분석 완료! AI 조언을 받을 수 있습니다.', 'ready');
-                    }
-                    updateAnalysisUI();
-                    break;
-                case 'reset_metrics_response':
-                    if (data.status === 'success') {
-                        log('✅ 메트릭 초기화 완료');
-                        sessionStartTime = Date.now();
-                        analysisStartTime = null;
-                        analysisEndTime = null;
-                        getAdviceBtn.disabled = true;
-                        document.getElementById('aiAdvice').innerHTML = '';
-                        updateAiStatus('면접 분석을 완료한 후 AI 조언을 받을 수 있습니다.');
-                    } else {
-                        log(`❌ 초기화 실패: ${data.message}`);
-                    }
-                    break;
-                case 'get_summary_response':
-                    if (data.status === 'success') {
-                        const summary = data.data;
-                        const summaryText = `
-📊 AI 면접 분석 요약:
-━━━━━━━━━━━━━━━━━━━
-⏱️  분석 시간: ${summary.analysis_session_duration || 0}초
-📹 총 프레임: ${summary.total_frames}개
-━━━━━━━━━━━━━━━━━━━
-👁 깜빡임: ${summary.blink_count}회
-👍 끄덕임: ${summary.nod_count}회
-😊 총 미소 시간: ${summary.total_smile_time}초
-📱 자세 흔들림: ${summary.posture_sway_count}회
-👋 손 제스쳐: ${summary.hand_gesture_count}회
-━━━━━━━━━━━━━━━━━━━
-                        `;
-                        alert(summaryText);
-                        log('✅ 요약 정보 표시 완료');
-                    } else {
-                        log(`❌ 요약 실패: ${data.message}`);
-                    }
-                    break;
-                case 'generate_ai_advice_response':
-                    try {
-                        if (data.status === 'success') {
-                            displayAiAdvice(data.advice);
-                            log('✅ AI 조언 생성 완료');
-                        } else {
-                            displayFallbackAdvice(data.fallback_advice || '조언 생성에 실패했습니다.');
-                            log(`⚠️ AI 조언 생성 실패, 기본 조언 제공`);
-                        }
-                    } catch (error) {
-                        log(`❌ AI 조언 처리 오류: ${error.message}`);
-                        displayFallbackAdvice('AI 서비스 응답을 처리하는 중 오류가 발생했습니다.');
-                        updateAiStatus('AI 서비스 응답 오류', 'error');
-                    } finally {
-                        document.getElementById('aiThinking').style.display = 'none';
-                        getAdviceBtn.disabled = false;
-                        updateAiStatus('조언 생성 완료', 'ready');
-                    }
-                    break;
-                default:
-                    log(`'${eventName}' 이벤트를 처리할 수 없습니다.`);
-            }
-        }
-        
-        // UI 업데이트 함수들
-        function updateConnectionStatus(status, message) {
-            const statusElement = connectionStatus;
-            const indicator = statusElement.querySelector('.status-indicator');
-            
-            statusElement.className = `connection-status connection-${status === 'connected' ? 'success' : status === 'error' ? 'error' : 'warning'}`;
-            indicator.className = `status-indicator status-${status === 'connected' ? 'connected' : 'disconnected'}`;
-            statusElement.innerHTML = `<span class="status-indicator status-${status === 'connected' ? 'connected' : 'disconnected'}"></span>${message}`;
-            
-            document.getElementById('connectionStatusText').innerHTML = 
-                `<span class="status-indicator status-${status === 'connected' ? 'connected' : 'disconnected'}"></span>${message}`;
-        }
-        
-        function updateAnalysisUI() {
-            const analysisStatus = document.getElementById('analysisStatusText');
-            
-            if (isAnalyzing) {
-                startBtn.style.display = 'none';
-                stopBtn.style.display = 'inline-block';
-                analysisStatus.innerHTML = '<span class="status-indicator status-analyzing"></span>분석 중';
-                updateAiStatus('분석 진행 중...', 'analyzing');
-            } else {
-                startBtn.style.display = 'inline-block';
-                stopBtn.style.display = 'none';
-                analysisStatus.innerHTML = '<span class="status-indicator status-waiting"></span>대기 중';
-            }
-        }
-        
-        function updateAiStatus(message, status = 'waiting') {
-            const aiStatus = document.getElementById('aiStatus');
-            const aiStatusText = document.getElementById('aiStatusText');
-            const statusIndicator = status === 'ready' ? 'connected' : status === 'thinking' ? 'analyzing' : 'waiting';
-            
-            aiStatus.innerHTML = `<div class="status-indicator status-${statusIndicator}"></div>${message}`;
-            aiStatusText.innerHTML = `<span class="status-indicator status-${statusIndicator}"></span>${message}`;
-        }
-        
-        function updateMetrics(data) {
-            document.getElementById('blinkCount').textContent = data.blink_count || 0;
-            document.getElementById('nodCount').textContent = data.nod_count || 0;
-            document.getElementById('shakeCount').textContent = data.shake_count || 0;
-            document.getElementById('postureSway').textContent = data.posture_sway || 0;
-            document.getElementById('handGestureCount').textContent = data.hand_gesture_count || 0;
-            
-            const smileTime = data.total_smile_time || 0;
-            document.getElementById('smileTime').textContent = smileTime.toFixed(1);
-            
-            if (analysisStartTime) {
-                const analysisElapsed = analysisEndTime ? 
-                    (analysisEndTime - analysisStartTime) / 1000 : 
-                    (Date.now() - analysisStartTime) / 1000;
-                const smilePercent = analysisElapsed > 0 ? (smileTime / analysisElapsed * 100) : 0;
-                document.getElementById('smilePercent').textContent = smilePercent.toFixed(1) + '%';
-                const blinkRate = analysisElapsed > 0 ? ((data.blink_count || 0) / (analysisElapsed / 60)) : 0;
-                document.getElementById('blinkRate').textContent = blinkRate.toFixed(1);
-                const gestureRate = analysisElapsed > 0 ? ((data.hand_gesture_count || 0) / (analysisElapsed / 60)) : 0;
-                document.getElementById('gestureRate').textContent = gestureRate.toFixed(1);
-            }
-            
-            const swayCount = data.posture_sway || 0;
-            const postureScore = Math.max(0, 100 - (swayCount * 5));
-            document.getElementById('postureScore').textContent = postureScore;
-            
-            document.getElementById('frameCount').textContent = data.frame_count || 0;
-        }
-        
-        function log(message) {
-            const now = new Date().toLocaleTimeString();
-            const debugElement = debugInfo;
-            debugElement.innerHTML += `<div>[${now}] ${message}</div>`;
-            debugElement.scrollTop = debugElement.scrollHeight;
-            console.log(`[${now}] ${message}`);
-        }
-        
-        function sendSocketMessage(eventName, data) {
-            if (socket && socket.readyState === WebSocket.OPEN) {
-                socket.send(JSON.stringify({ event: eventName, data: data }));
-            } else {
-                log('❌ WebSocket is not connected.');
-            }
-        }
-
-        // 버튼 이벤트 핸들러
-        startBtn.addEventListener('click', () => {
-            log('🚀 면접 분석 시작 요청');
-            sendSocketMessage('toggle_analysis', { analyze: true });
-        });
-        
-        stopBtn.addEventListener('click', () => {
-            log('⏹ 면접 분석 완료 요청');
-            sendSocketMessage('toggle_analysis', { analyze: false });
-        });
-        
-        resetBtn.addEventListener('click', () => {
-            log('🔄 메트릭 초기화 요청');
-            sendSocketMessage('reset_metrics', {});
-        });
-        
-        summaryBtn.addEventListener('click', () => {
-            log('📊 요약 정보 요청');
-            sendSocketMessage('get_summary', {});
-        });
-        
-        getAdviceBtn.addEventListener('click', () => {
-            if (getAdviceBtn.disabled) return;
-            log('🤖 AI 조언 생성 요청');
-            
-            document.getElementById('aiThinking').style.display = 'block';
-            document.getElementById('aiStatus').style.display = 'none';
-            updateAiStatus('AI 조언 생성 중...', 'thinking');
-            
-            sendSocketMessage('generate_ai_advice', {});
-        });
-        
-        function displayAiAdvice(advice) {
-            const adviceContainer = document.getElementById('aiAdvice');
-            adviceContainer.innerHTML = `
-                <div class="ai-advice">
-                    <h4>🤖 AI 전문가 조언</h4>
-                    <div style="white-space: pre-line; line-height: 1.6;">${advice}</div>
-                    <hr style="margin: 15px 0; opacity: 0.3;">
-                    <small style="opacity: 0.8;">
-                        <strong>💡 참고:</strong> 이 조언은 과학적 연구와 통계 데이터를 기반으로 생성되었습니다.
-                        개인차가 있을 수 있으며, 지속적인 연습을 통해 개선할 수 있습니다.
-                    </small>
-                </div>
-            `;
-        }
-        
-        function displayFallbackAdvice(advice) {
-            const adviceContainer = document.getElementById('aiAdvice');
-            adviceContainer.innerHTML = `
-                <div class="ai-advice">
-                    <h4>📊 기본 분석 조언</h4>
-                    <div style="white-space: pre-line; line-height: 1.6;">${advice}</div>
-                    <hr style="margin: 15px 0; opacity: 0.3;">
-                    <small style="opacity: 0.8;">
-                        <strong>ℹ️ 안내:</strong> AI 조언 서비스가 일시적으로 사용할 수 없어 기본 조언을 제공합니다.
-                        더 자세한 조언을 원하시면 잠시 후 다시 시도해 주세요.
-                    </small>
-                </div>
-            `;
-        }
-        
-        // 페이지 로드 시 초기화
-        window.addEventListener('load', () => {
-            log('🤖 AI 면접 코치 시스템 준비 완료 - Azure OpenAI 기반 과학적 분석');
-            setupMedia();
-            setupWebSocket();
-            updateAnalysisUI();
-        });
-        
-        // 페이지 언로드 시 정리
-        window.addEventListener('beforeunload', () => {
-            if (socket && socket.readyState === WebSocket.OPEN) {
-                socket.close();
-            }
-            if (localStream) {
-                localStream.getTracks().forEach(track => track.stop());
-            }
-        });
-
-        function setupMedia() {
-            navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 }, audio: true })
-                .then(stream => {
-                    localStream = stream;
-                    videoElement.srcObject = stream;
-                    videoElement.play();
-                    log('✅ 로컬 카메라 및 마이크 연결 성공');
-
-                    videoElement.onloadedmetadata = () => {
-                        canvasElement.width = videoElement.videoWidth;
-                        canvasElement.height = videoElement.videoHeight;
-                    };
-
-                    setupAudioRecording(stream);
-                })
-                .catch(err => {
-                    log(`❌ 미디어 장치 접근 실패: ${err.name} - ${err.message}`);
-                    alert('카메라와 마이크에 접근할 수 없습니다. 권한을 확인해주세요.');
-                });
         }
 
         function setupAudioRecording(stream) {
-            mediaRecorder = new MediaRecorder(stream);
-
+            mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
             mediaRecorder.ondataavailable = event => {
                 if (event.data.size > 0 && socket && socket.readyState === WebSocket.OPEN) {
                     const reader = new FileReader();
@@ -1080,51 +175,90 @@
                     reader.readAsDataURL(event.data);
                 }
             };
-
-            mediaRecorder.onstart = () => {
-                log('🎤 음성 녹음 시작');
-            };
-
-            mediaRecorder.onstop = () => {
-                log('🛑 음성 녹음 중지');
-            };
         }
 
-        function startRecording() {
-            if (mediaRecorder && mediaRecorder.state !== 'recording') {
-                mediaRecorder.start(1000); // 1초마다 데이터 전송
+        function sendSocketMessage(event, data) {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({ event, data }));
             }
         }
 
-        function stopRecording() {
-            if (mediaRecorder && mediaRecorder.state === 'recording') {
-                mediaRecorder.stop();
+        elems.startBtn.addEventListener('click', () => {
+            elems.startBtn.disabled = true;
+            elems.finishBtn.disabled = false;
+            elems.resultsContainer.style.display = 'none';
+            elems.analysisStatus.style.display = 'none';
+            elems.transcription.textContent = '답변을 말씀해주세요...';
+            mediaRecorder.start(1000);
+            sendSocketMessage('toggle_analysis', { analyze: true });
+        });
+
+        elems.finishBtn.addEventListener('click', () => {
+            elems.finishBtn.disabled = true;
+            mediaRecorder.stop();
+            sendSocketMessage('finish_analysis', {});
+        });
+
+        function handleSocketEvent(eventName, data) {
+            switch (eventName) {
+                case 'speech_update':
+                    elems.transcription.textContent = data.text;
+                    break;
+                case 'analysis_pending':
+                    elems.analysisStatus.className = 'panel status-pending';
+                    elems.analysisStatus.textContent = data.message;
+                    elems.analysisStatus.style.display = 'block';
+                    break;
+                case 'voice_scores_update':
+                case 'video_analysis_update':
+                    updateResults(eventName, data);
+                    break;
+                case 'error':
+                    elems.analysisStatus.className = 'panel status-error';
+                    elems.analysisStatus.textContent = `오류: ${data.message}`;
+                    break;
             }
         }
 
-        function sendFrame() {
-            if (!isAnalyzing || videoElement.paused || videoElement.ended) {
-                return;
+        let results = {};
+        function updateResults(type, data) {
+            results[type] = data;
+            if (results['voice_scores_update'] && results['video_analysis_update']) {
+                elems.analysisStatus.className = 'panel status-success';
+                elems.analysisStatus.textContent = '분석이 완료되었습니다!';
+                renderResultsTable(results['voice_scores_update'], results['video_analysis_update']);
+                elems.resultsContainer.style.display = 'block';
+                elems.startBtn.disabled = false;
+                results = {}; // Reset for next round
             }
-            const context = canvasElement.getContext('2d');
-            context.drawImage(videoElement, 0, 0, canvasElement.width, canvasElement.height);
-            const imageData = canvasElement.toDataURL('image/jpeg', 0.8);
-            sendSocketMessage('video_frame', { image: imageData });
         }
 
-        function startSendingFrames() {
-            if (frameSenderInterval) {
-                clearInterval(frameSenderInterval);
-            }
-            frameSenderInterval = setInterval(sendFrame, 200); // 5 FPS
+        function renderResultsTable(voice, video) {
+            const voiceScores = voice ? `
+                <h3>음성 분석</h3>
+                <table>
+                    <tr><th>항목</th><th>점수</th></tr>
+                    <tr><td>자신감</td><td>${voice.confidence_score || 'N/A'}</td></tr>
+                    <tr><td>유창성</td><td>${voice.fluency_score || 'N/A'}</td></tr>
+                    <tr><td>안정성</td><td>${voice.stability_score || 'N/A'}</td></tr>
+                    <tr><td>명료성</td><td>${voice.clarity_score || 'N/A'}</td></tr>
+                    <tr><td>종합점수</td><td>${voice.overall_score || 'N/A'}</td></tr>
+                </table>` : '<p>음성 분석 데이터를 불러오지 못했습니다.</p>';
+
+            const videoScores = video.behavioral_metrics ? `
+                <h3>영상 분석</h3>
+                <table>
+                    <tr><th>항목</th><th>값</th></tr>
+                    <tr><td>자세 안정성</td><td>${video.behavioral_metrics.posture.stability_score.toFixed(1)} 점</td></tr>
+                    <tr><td>머리 안정성</td><td>${video.behavioral_metrics.head_movements.head_stability_score.toFixed(1)} 점</td></tr>
+                    <tr><td>미소 비율</td><td>${video.behavioral_metrics.facial_expressions.smile_percentage.toFixed(1)} %</td></tr>
+                    <tr><td>분당 눈깜빡임</td><td>${video.behavioral_metrics.eye_contact.blink_rate_per_minute.toFixed(1)} 회</td></tr>
+                    <tr><td>분당 손 제스쳐</td><td>${video.behavioral_metrics.hand_gestures.gesture_frequency_per_minute.toFixed(1)} 회</td></tr>
+                </table>` : '<p>영상 분석 데이터를 불러오지 못했습니다.</p>';
+
+            elems.resultsTables.innerHTML = voiceScores + videoScores;
         }
 
-        function stopSendingFrames() {
-            if (frameSenderInterval) {
-                clearInterval(frameSenderInterval);
-                frameSenderInterval = null;
-            }
-        }
     </script>
 </body>
 </html>

@@ -471,3 +471,4 @@ $RECYCLE.BIN/
 *.lnk
 
 # End of https://www.toptal.com/developers/gitignore/api/windows,macos,python,django,visualstudiocode,pycharm,dotenv,venv
+ares/data/interview_scores_20250905_090223.csv

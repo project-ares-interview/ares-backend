@@ -4,100 +4,74 @@ import base64
 import time
 import threading
 import asyncio
-from queue import Queue, Empty
+import uuid
+import wave
+import os
 
-import cv2
 import numpy as np
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
 
 from ares.api.services.interview_metrics import InterviewMetrics
 from ares.api.services.interview_analysis_service import get_detailed_analysis_data, process_frame
-from ares.api.services.openai_advisor import InterviewAdvisor
 from ares.api.services.speech_service import SpeechToTextFromStream
+from ares.api.services.voice_analysis_service import analyze_voice_from_file
 
 # ==============================================================================
-# Session and AI Advisor Management
+# Session Management
 # ==============================================================================
 
-# Thread-safe session management
 client_sessions = {}
 session_lock = threading.Lock()
-
-# Global AI advisor instance
-advisor = None
-
-def init_ai_advisor():
-    """Initializes the AI advisor instance."""
-    global advisor
-    try:
-        advisor = InterviewAdvisor()
-        print("🤖 AI 조언 시스템 초기화 완료")
-        return True
-    except Exception as e:
-        print(f"❌ AI 조언 시스템 초기화 실패: {e}")
-        advisor = None
-        return False
-
-# Initialize the advisor when the module is loaded
-init_ai_advisor()
+TEMP_DIR = "ares/temp"
 
 # ==============================================================================
-# Worker Threads
+# Analysis Worker Thread
 # ==============================================================================
 
-def process_frame_worker(sid, consumer_instance):
-    """Processes video frames in a separate thread."""
-    print(f"[{sid}] 프레임 처리 워커 시작")
-    while True:
-        with session_lock:
-            session = client_sessions.get(sid)
-            if not session or not session["processing_active"]:
-                break
-        
-        try:
-            frame = session["frame_queue"].get(timeout=1)
-            if frame is None: # Poison pill
-                break
-
-            current_metrics, _ = process_frame(frame, session["metrics"])
-
-            if not session["metrics_queue"].full():
-                session["metrics_queue"].put(current_metrics)
-
-        except Empty:
-            continue
-        except Exception as e:
-            print(f"[{sid}] 프레임 처리 워커 오류: {e}")
-            time.sleep(0.1)
-            
-    print(f"[{sid}] 프레임 처리 워커 종료")
-
-def metrics_sender_worker(sid, consumer_instance):
-    """Sends metrics to the client via WebSocket in a separate thread."""
-    print(f"[{sid}] 메트릭 전송 워커 시작")
+def analysis_worker(sid, consumer_instance, audio_path, full_transcript):
+    """Runs the heavy analysis (voice and video) in a background thread."""
+    print(f"[{sid}] 백그라운드 분석 시작...")
     loop = consumer_instance.loop
 
-    while True:
+    try:
+        # 1. Voice Analysis
+        voice_scores = analyze_voice_from_file(audio_path, full_transcript)
+        if voice_scores:
+            asyncio.run_coroutine_threadsafe(
+                consumer_instance.send_json({"event": "voice_scores_update", "data": voice_scores}),
+                loop
+            )
+        else:
+            asyncio.run_coroutine_threadsafe(
+                consumer_instance.send_json({"event": "error", "data": {"message": "음성 점수 분석에 실패했습니다."}}),
+                loop
+            )
+
+        # 2. Video Analysis
         with session_lock:
             session = client_sessions.get(sid)
-            if not session or not session["processing_active"]:
-                break
-        
-        try:
-            metrics = session["metrics_queue"].get(timeout=1)
-            if metrics:
-                # Schedule the send_json coroutine on the consumer's event loop
+            if session:
+                video_analysis = get_detailed_analysis_data(session["metrics"])
                 asyncio.run_coroutine_threadsafe(
-                    consumer_instance.send_json({"event": "metrics_update", "data": metrics}),
+                    consumer_instance.send_json({"event": "video_analysis_update", "data": video_analysis}),
                     loop
                 )
-        except Empty:
-            continue
-        except Exception as e:
-            print(f"[{sid}] 메트릭 전송 워커 오류: {e}")
-            time.sleep(0.1)
 
-    print(f"[{sid}] 메트릭 전송 워커 종료")
+    except Exception as e:
+        print(f"[{sid}] 분석 워커 오류: {e}")
+        asyncio.run_coroutine_threadsafe(
+            consumer_instance.send_json({"event": "error", "data": {"message": f"분석 중 오류 발생: {e}"}}),
+            loop
+        )
+    finally:
+        # Clean up the temporary audio file
+        try:
+            os.remove(audio_path)
+            print(f"[{sid}] 임시 오디오 파일 삭제: {audio_path}")
+        except OSError as e:
+            print(f"[{sid}] 임시 파일 삭제 오류: {e}")
+        
+        print(f"[{sid}] 백그라운드 분석 종료.")
 
 # ==============================================================================
 # Interview Consumer
@@ -107,222 +81,114 @@ class InterviewConsumer(AsyncJsonWebsocketConsumer):
     """Handles WebSocket connections for the AI Interview Coach."""
 
     async def connect(self):
-        """Handles a new WebSocket connection."""
         self.sid = self.channel_name
         self.loop = asyncio.get_running_loop()
         await self.accept()
 
-        def stt_callback(text, event_type):
-            """Callback function to handle recognized speech."""
+        def stt_callback(text, duration_sec, event_type):
+            with session_lock:
+                session = client_sessions.get(self.sid)
+                if session and session["metrics"].analyzing:
+                    session["full_transcript"].append(text)
+            
             asyncio.run_coroutine_threadsafe(
-                self.send_json({"event": "speech_update", "data": {"text": text, "type": event_type}}),
+                self.send_json({"event": "speech_update", "data": {"text": text}}),
                 self.loop
             )
 
         with session_lock:
-            print(f"[{self.sid}] 새로운 세션 생성 중...")
+            os.makedirs(TEMP_DIR, exist_ok=True)
+            temp_audio_path = os.path.join(TEMP_DIR, f"{uuid.uuid4()}.wav")
             client_sessions[self.sid] = {
                 "metrics": InterviewMetrics(),
-                "frame_queue": Queue(maxsize=2),
-                "metrics_queue": Queue(maxsize=5),
-                "processing_active": True,
-                "processing_thread": None,
-                "metrics_thread": None,
-                "stt_recognizer": None,
+                "processing_active": False,
+                "stt_recognizer": SpeechToTextFromStream(recognized_callback=stt_callback),
+                "audio_buffer": bytearray(),
+                "full_transcript": [],
+                "temp_audio_path": temp_audio_path,
             }
-            print(f"[{self.sid}] 세션 생성 완료. 현재 활성 세션: {len(client_sessions)}")
-
-        # Start worker threads and STT
-        session = client_sessions[self.sid]
-        session["processing_thread"] = threading.Thread(target=process_frame_worker, args=(self.sid, self), daemon=True)
-        session["metrics_thread"] = threading.Thread(target=metrics_sender_worker, args=(self.sid, self), daemon=True)
-        try:
-            session["stt_recognizer"] = SpeechToTextFromStream(recognized_callback=stt_callback)
-        except Exception as e:
-            print(f"[{self.sid}] STT Recognizer 초기화 실패: {e}")
-            await self.send_json({"event": "error", "data": {"message": "Speech recognition could not be initialized."}})
-
-
-        session["processing_thread"].start()
-        session["metrics_thread"].start()
-
-        await self.send_json({"event": "connection_status", "data": {"status": "connected", "timestamp": time.time()}})
+        await self.send_json({"event": "connection_status", "data": {"status": "connected"}})
 
     async def disconnect(self, close_code):
-        """Handles a WebSocket disconnection."""
-        print(f"[{self.sid}] 클라이언트 연결 끊김 (코드: {close_code})")
         with session_lock:
             session = client_sessions.pop(self.sid, None)
             if session:
-                session["processing_active"] = False
-                # Stop STT recognizer
-                if session.get("stt_recognizer"):
-                    session["stt_recognizer"].stop()
-                # Poison pill to stop frame worker if it's waiting on the queue
-                try:
-                    session["frame_queue"].put_nowait(None)
-                except Exception:
-                    pass
-            print(f"[{self.sid}] 세션 정리 완료. 현재 활성 세션: {len(client_sessions)}")
+                if session.get("stt_recognizer"): session["stt_recognizer"].stop()
+                # Ensure temp file is cleaned up if it exists
+                if os.path.exists(session["temp_audio_path"]):
+                    try: os.remove(session["temp_audio_path"])
+                    except OSError: pass
+        print(f"[{self.sid}] 클라이언트 연결 끊김.")
 
     async def receive_json(self, content):
-        """Receives a message from the WebSocket and dispatches it."""
         event = content.get("event")
         data = content.get("data", {})
-
-        handler_map = {
-            "video_frame": self.handle_video_frame,
-            "audio_chunk": self.handle_audio_chunk,
-            "toggle_analysis": self.handle_toggle_analysis,
-            "reset_metrics": self.handle_reset_metrics,
-            "get_summary": self.handle_get_summary,
-            "generate_ai_advice": self.handle_generate_ai_advice,
-        }
-
-        handler = handler_map.get(event)
-        if handler:
-            await handler(data)
-        else:
-            print(f"[{self.sid}] 알 수 없는 이벤트 수신: {event}")
+        handler = getattr(self, f"handle_{event}", None)
+        if handler: await handler(data)
 
     async def handle_video_frame(self, data):
-        """Handles incoming video frames."""
         session = client_sessions.get(self.sid)
-        if not session:
-            return
-
+        if not session or not session["metrics"].analyzing: return
         try:
             image_data = data.get("image")
             if image_data:
-                header, encoded = image_data.split(",", 1)
-                decoded_image = base64.b64decode(encoded)
-                nparr = np.frombuffer(decoded_image, np.uint8)
-                frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                _, encoded = image_data.split(",", 1)
+                frame = cv2.imdecode(np.frombuffer(base64.b64decode(encoded), np.uint8), cv2.IMREAD_COLOR)
                 if frame is not None:
-                    if not session["frame_queue"].full():
-                        session["frame_queue"].put(frame)
+                    video_metrics, _ = process_frame(frame, session["metrics"])
+                    # Optionally send real-time non-verbal metrics if needed
+                    # await self.send_json({"event": "realtime_metrics", "data": video_metrics})
         except Exception as e:
             print(f"[{self.sid}] 비디오 프레임 처리 오류: {e}")
 
     async def handle_audio_chunk(self, data):
-        """Handles incoming audio chunks."""
         session = client_sessions.get(self.sid)
-        if not session:
-            return
-        
-        stt_recognizer = session.get("stt_recognizer")
-        if not stt_recognizer:
-            return
-
+        if not session or not session["metrics"].analyzing: return
         try:
-            audio_data = data.get("audio")
-            if audio_data:
-                # The audio data is expected to be a base64 encoded string of a raw audio chunk
-                decoded_audio = base64.b64decode(audio_data)
-                stt_recognizer.write_chunk(decoded_audio)
+            audio_data = base64.b64decode(data.get("audio"))
+            session["audio_buffer"].extend(audio_data)
+            if session.get("stt_recognizer"): 
+                session["stt_recognizer"].write_chunk(audio_data)
         except Exception as e:
             print(f"[{self.sid}] 오디오 청크 처리 오류: {e}")
 
-
     async def handle_toggle_analysis(self, data):
-        """Toggles the analysis state."""
         session = client_sessions.get(self.sid)
-        if not session:
-            return
-        
-        metrics = session["metrics"]
-        analyzing = data.get("analyze", False)
-        session_duration = 0
-        
-        if analyzing:
-            metrics.analysis_start_time = time.time()
-            metrics.analysis_end_time = None
-        else:
-            metrics.analysis_end_time = time.time()
-            if metrics.analysis_start_time:
-                session_duration = metrics.analysis_end_time - metrics.analysis_start_time
-        
-        metrics.analyzing = analyzing
-        
-        await self.send_json({
-            "event": "analysis_status",
-            "data": {
-                "analyzing": metrics.analyzing,
-                "timestamp": time.time(),
-                "session_duration": session_duration if not analyzing and metrics.analysis_end_time else 0,
-            }
-        })
+        if not session: return
+        is_analyzing = data.get("analyze", False)
+        session["metrics"].analyzing = is_analyzing
+        if is_analyzing:
+            session["metrics"].analysis_start_time = time.time()
+            session["audio_buffer"].clear()
+            session["full_transcript"].clear()
+        await self.send_json({"event": "analysis_status", "data": {"analyzing": is_analyzing}})
 
-    async def handle_reset_metrics(self, data):
-        """Resets the metrics for the current session."""
+    async def handle_finish_analysis(self, data):
+        await self.send_json({"event": "analysis_pending", "data": {"message": "분석을 시작합니다..."}})
         session = client_sessions.get(self.sid)
-        if not session:
+        if not session: return
+
+        # Stop real-time processing
+        session["metrics"].analyzing = False
+        session["metrics"].analysis_end_time = time.time()
+
+        # Write buffered audio to a temporary WAV file
+        audio_path = session["temp_audio_path"]
+        try:
+            with wave.open(audio_path, 'wb') as wf:
+                wf.setnchannels(1)  # Mono
+                wf.setsampwidth(2)  # 16-bit
+                wf.setframerate(16000) # 16kHz sample rate
+                wf.writeframes(session["audio_buffer"])
+        except Exception as e:
+            await self.send_json({"event": "error", "data": {"message": f"오디오 파일 저장 실패: {e}"}})
             return
 
-        old_analyzing = session["metrics"].analyzing
-        session["metrics"] = InterviewMetrics()
-        session["metrics"].analyzing = old_analyzing
-        
-        await self.send_json({
-            "event": "reset_metrics_response",
-            "data": {"status": "success", "message": "Metrics reset successfully"}
-        })
+        full_transcript = " ".join(session["full_transcript"])
 
-    async def handle_get_summary(self, data):
-        """Sends a summary of the current metrics."""
-        session = client_sessions.get(self.sid)
-        if not session:
-            return
-        
-        metrics = session["metrics"]
-        # This is a simplified summary. The detailed one is in get_detailed_analysis_data.
-        summary_data = {
-            "total_frames": metrics.frame_count,
-            "blink_count": metrics.blink_count,
-            "nod_count": metrics.nod_count,
-            "shake_count": metrics.shake_count,
-            "total_smile_time": round(metrics.total_smile_time, 1),
-            "posture_sway_count": metrics.posture_sway_count,
-            "hand_gesture_count": metrics.hand_gesture_count,
-        }
-        await self.send_json({"event": "get_summary_response", "data": {"status": "success", "data": summary_data}})
-
-    async def handle_generate_ai_advice(self, data):
-        """Generates and sends AI-based advice."""
-        session = client_sessions.get(self.sid)
-        if not session:
-            await self.send_json({"event": "generate_ai_advice_response", "data": {"status": "error", "message": "Session not found"}})
-            return
-
-        if not advisor:
-            await self.send_json({
-                "event": "generate_ai_advice_response",
-                "data": {
-                    "status": "error",
-                    "message": "AI 조언 시스템이 초기화되지 않았습니다.",
-                    "fallback_advice": "기본 조언을 사용합니다. Azure OpenAI 설정을 확인해주세요.",
-                }
-            })
-            return
-
-        analysis_data = get_detailed_analysis_data(session["metrics"])
-        
-        # Run the blocking IO call in a separate thread
-        advice_result = await asyncio.to_thread(advisor.generate_advice, analysis_data)
-        
-        response_data = {}
-        if advice_result["status"] == "success":
-            response_data = {
-                "status": "success",
-                "advice": advice_result["advice"],
-                "analysis_summary": advice_result.get("analysis_summary", {}),
-                "timestamp": advice_result["timestamp"],
-            }
-        else:
-            response_data = {
-                "status": "error",
-                "message": advice_result.get("message", "AI 조언 생성 실패"),
-                "fallback_advice": advice_result.get("fallback_advice", "기본 조언을 생성할 수 없습니다."),
-            }
-            
-        await self.send_json({"event": "generate_ai_advice_response", "data": response_data})
+        # Start background thread for heavy analysis
+        threading.Thread(
+            target=analysis_worker, 
+            args=(self.sid, self, audio_path, full_transcript),
+            daemon=True
+        ).start()
