@@ -14,7 +14,7 @@ from channels.generic.websocket import AsyncJsonWebsocketConsumer
 from ares.api.services.interview_metrics import InterviewMetrics
 from ares.api.services.interview_analysis_service import get_detailed_analysis_data, process_frame
 from ares.api.services.speech_service import SpeechToTextFromStream
-from ares.api.services.voice_analysis_service import analyze_voice_from_file
+from ares.api.services.voice_analysis_service import analyze_voice_from_buffer
 
 # ==============================================================================
 # Session Management
@@ -22,20 +22,27 @@ from ares.api.services.voice_analysis_service import analyze_voice_from_file
 
 client_sessions = {}
 session_lock = threading.Lock()
-TEMP_DIR = "ares/temp"
 
 # ==============================================================================
 # Analysis Worker Thread
 # ==============================================================================
 
-def analysis_worker(sid, consumer_instance, audio_path, full_transcript):
+def analysis_worker(sid, consumer_instance, audio_buffer, full_transcript):
     """Runs the heavy analysis (voice and video) in a background thread."""
     print(f"[{sid}] 백그라운드 분석 시작...")
     loop = consumer_instance.loop
 
     try:
         # 1. Voice Analysis
-        voice_scores = analyze_voice_from_file(audio_path, full_transcript)
+        # Convert byte array to numpy array for analysis
+        if len(audio_buffer) % 2 != 0:
+            print(f"[{sid}] 오디오 버퍼의 길이가 홀수입니다: {len(audio_buffer)}. 마지막 바이트를 제거합니다.")
+            audio_buffer = audio_buffer[:-1]
+        
+        audio_data = np.frombuffer(audio_buffer, dtype=np.int16).astype(np.float32) / 32768.0
+        sample_rate = 16000  # As defined in the consumer
+        
+        voice_scores = analyze_voice_from_buffer(audio_data, sample_rate, full_transcript)
         if voice_scores:
             asyncio.run_coroutine_threadsafe(
                 consumer_instance.send_json({"event": "voice_scores_update", "data": voice_scores}),
@@ -64,13 +71,6 @@ def analysis_worker(sid, consumer_instance, audio_path, full_transcript):
             loop
         )
     finally:
-        # Clean up the temporary audio file
-        try:
-            os.remove(audio_path)
-            print(f"[{sid}] 임시 오디오 파일 삭제: {audio_path}")
-        except OSError as e:
-            print(f"[{sid}] 임시 파일 삭제 오류: {e}")
-        
         print(f"[{sid}] 백그라운드 분석 종료.")
 
 # ==============================================================================
@@ -97,15 +97,12 @@ class InterviewConsumer(AsyncJsonWebsocketConsumer):
             )
 
         with session_lock:
-            os.makedirs(TEMP_DIR, exist_ok=True)
-            temp_audio_path = os.path.join(TEMP_DIR, f"{uuid.uuid4()}.wav")
             client_sessions[self.sid] = {
                 "metrics": InterviewMetrics(),
                 "processing_active": False,
                 "stt_recognizer": SpeechToTextFromStream(recognized_callback=stt_callback),
                 "audio_buffer": bytearray(),
                 "full_transcript": [],
-                "temp_audio_path": temp_audio_path,
             }
         await self.send_json({"event": "connection_status", "data": {"status": "connected"}})
 
@@ -114,10 +111,6 @@ class InterviewConsumer(AsyncJsonWebsocketConsumer):
             session = client_sessions.pop(self.sid, None)
             if session:
                 if session.get("stt_recognizer"): session["stt_recognizer"].stop()
-                # Ensure temp file is cleaned up if it exists
-                if os.path.exists(session["temp_audio_path"]):
-                    try: os.remove(session["temp_audio_path"])
-                    except OSError: pass
         print(f"[{self.sid}] 클라이언트 연결 끊김.")
 
     async def receive_json(self, content):
@@ -136,6 +129,8 @@ class InterviewConsumer(AsyncJsonWebsocketConsumer):
                 frame = cv2.imdecode(np.frombuffer(base64.b64decode(encoded), np.uint8), cv2.IMREAD_COLOR)
                 if frame is not None:
                     video_metrics, _ = process_frame(frame, session["metrics"])
+
+                    print(video_metrics)
                     # Optionally send real-time non-verbal metrics if needed
                     # await self.send_json({"event": "realtime_metrics", "data": video_metrics})
         except Exception as e:
@@ -172,23 +167,13 @@ class InterviewConsumer(AsyncJsonWebsocketConsumer):
         session["metrics"].analyzing = False
         session["metrics"].analysis_end_time = time.time()
 
-        # Write buffered audio to a temporary WAV file
-        audio_path = session["temp_audio_path"]
-        try:
-            with wave.open(audio_path, 'wb') as wf:
-                wf.setnchannels(1)  # Mono
-                wf.setsampwidth(2)  # 16-bit
-                wf.setframerate(16000) # 16kHz sample rate
-                wf.writeframes(session["audio_buffer"])
-        except Exception as e:
-            await self.send_json({"event": "error", "data": {"message": f"오디오 파일 저장 실패: {e}"}})
-            return
-
+        # Get audio buffer and transcript
+        audio_buffer = session["audio_buffer"]
         full_transcript = " ".join(session["full_transcript"])
 
         # Start background thread for heavy analysis
         threading.Thread(
             target=analysis_worker, 
-            args=(self.sid, self, audio_path, full_transcript),
+            args=(self.sid, self, audio_buffer, full_transcript),
             daemon=True
         ).start()
