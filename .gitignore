@@ -470,4 +470,7 @@ $RECYCLE.BIN/
 # Windows shortcuts
 *.lnk
 
+# Google OAuth credentials
+credentials.json
+token.json
 # End of https://www.toptal.com/developers/gitignore/api/windows,macos,python,django,visualstudiocode,pycharm,dotenv,venv
