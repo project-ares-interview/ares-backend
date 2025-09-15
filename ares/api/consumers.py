@@ -5,6 +5,7 @@ import threading
 import asyncio
 import io
 import cv2
+import wave
 
 # 오디오 디코딩을 위해 pydub을 사용합니다.
 # 시스템에 FFmpeg이 설치되어 있어야 합니다. (https://ffmpeg.org/download.html)
@@ -44,6 +45,7 @@ def analysis_worker(sid, consumer_instance, audio_buffer, full_transcript):
         sample_rate = 16000  # As defined in the consumer
         
         voice_scores = analyze_voice_from_buffer(audio_data, sample_rate, full_transcript)
+
         if voice_scores:
             asyncio.run_coroutine_threadsafe(
                 consumer_instance.send_json({"event": "voice_scores_update", "data": voice_scores}),
@@ -102,9 +104,6 @@ class InterviewConsumer(AsyncJsonWebsocketConsumer):
                 "metrics": InterviewMetrics(),
                 "processing_active": False,
                 "stt_recognizer": SpeechToTextFromStream(recognized_callback=stt_callback),
-                "audio_buffer": bytearray(),      # 최종 분석용 PCM 데이터
-                "opus_buffer": bytearray(),       # 실시간 디코딩용 Opus 데이터
-                "processed_duration_ms": 0,   # 기처리된 오디오 길이 (ms)
                 "full_transcript": [],
             }
         await self.send_json({"event": "connection_status", "data": {"status": "connected"}})
@@ -143,38 +142,14 @@ class InterviewConsumer(AsyncJsonWebsocketConsumer):
             print(f"[{self.sid}] 비디오 프레임 처리 오류: {e}")
 
     async def handle_audio_chunk(self, data):
+        """실시간 STT를 위해 오디오 청크를 받아 처리합니다."""
         session = client_sessions.get(self.sid)
         if not session or not session["metrics"].analyzing: return
         try:
             audio_data_opus = base64.b64decode(data.get("audio"))
 
-            # STT 서비스에는 원본 Opus 데이터를 전송
             if session.get("stt_recognizer"):
                 session["stt_recognizer"].write_chunk(audio_data_opus)
-
-            # Opus 버퍼에 데이터 추가
-            session["opus_buffer"].extend(audio_data_opus)
-
-            # 점진적 디코딩 및 실시간 분석
-            try:
-                full_opus_stream = io.BytesIO(session["opus_buffer"])
-                opus_segment = AudioSegment.from_file(full_opus_stream, format="webm")
-                
-                new_duration_ms = len(opus_segment)
-                prev_duration_ms = session.get("processed_duration_ms", 0)
-
-                if new_duration_ms > prev_duration_ms:
-                    # 새로 추가된 오디오 부분만 슬라이싱
-                    new_audio_part = opus_segment[prev_duration_ms:]
-                    
-                    # PCM으로 변환하여 최종 분석 버퍼에 추가
-                    pcm_segment = new_audio_part.set_frame_rate(16000).set_channels(1)
-                    session["audio_buffer"].extend(pcm_segment.raw_data)
-                    session["processed_duration_ms"] = new_duration_ms
-
-            except Exception as e:
-                # 아직 데이터가 충분하지 않으면 디코딩 오류 발생 가능
-                print(f"[{self.sid}] 오디오 청크 디코딩/분석 경고: {e}")
 
         except Exception as e:
             print(f"[{self.sid}] 오디오 청크 처리 오류: {e}")
@@ -182,14 +157,11 @@ class InterviewConsumer(AsyncJsonWebsocketConsumer):
     async def handle_toggle_analysis(self, data):
         session = client_sessions.get(self.sid)
         if not session: return
+
         is_analyzing = data.get("analyze", False)
         session["metrics"].analyzing = is_analyzing
         if is_analyzing:
             session["metrics"].analysis_start_time = time.time()
-            # 분석 시작 시 버퍼 초기화
-            session["audio_buffer"].clear()
-            session["opus_buffer"].clear()
-            session["processed_duration_ms"] = 0
             session["full_transcript"].clear()
         await self.send_json({"event": "analysis_status", "data": {"analyzing": is_analyzing}})
 
@@ -202,13 +174,34 @@ class InterviewConsumer(AsyncJsonWebsocketConsumer):
         session["metrics"].analyzing = False
         session["metrics"].analysis_end_time = time.time()
 
-        # Get audio buffer and transcript
-        audio_buffer = session["audio_buffer"]
-        full_transcript = " ".join(session["full_transcript"])
+        # 클라이언트에서 전송한 전체 오디오 데이터를 받음
+        final_audio_buffer = bytearray()
+        base64_audio = data.get("audio")
+        if base64_audio:
+            try:
+                # Base64 디코딩하여 Opus 데이터 획득
+                opus_data = base64.b64decode(base64_audio)
 
+                # pydub으로 Opus -> PCM 변환
+                opus_stream = io.BytesIO(opus_data)
+                opus_segment = AudioSegment.from_file(opus_stream, format="webm")
+                pcm_segment = opus_segment.set_frame_rate(16000).set_channels(1)
+                final_audio_buffer = pcm_segment.raw_data
+                print(f"[{self.sid}] 오디오 디코딩 완료. PCM 데이터 길이: {len(final_audio_buffer)}")
+
+            except Exception as e:
+                print(f"[{self.sid}] 최종 오디오 디코딩 실패: {e}")
+        else:
+            print(f"[{self.sid}] 오디오 데이터가 전송되지 않았습니다.")
+        
+        full_transcript = " ".join(session["full_transcript"])
+        if not full_transcript:
+            full_transcript = "(음성 인식 결과가 없습니다.)"
+
+        print(f"full_transcript: {full_transcript}")
         # Start background thread for heavy analysis
         threading.Thread(
             target=analysis_worker, 
-            args=(self.sid, self, audio_buffer, full_transcript),
+            args=(self.sid, self, final_audio_buffer, full_transcript),
             daemon=True
         ).start()
