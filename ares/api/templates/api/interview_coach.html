@@ -164,7 +164,8 @@
         }
 
         function setupAudioRecording(stream) {
-            mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
+            const audioStream = new MediaStream(stream.getAudioTracks());
+            mediaRecorder = new MediaRecorder(audioStream, { mimeType: 'audio/webm;codecs=opus' });
             mediaRecorder.ondataavailable = event => {
                 if (event.data.size > 0 && socket && socket.readyState === WebSocket.OPEN) {
                     const reader = new FileReader();
