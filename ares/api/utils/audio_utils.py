@@ -49,10 +49,10 @@ def optimized_voiced_ratio(y, sr):
     except Exception:
         return 0.7
 
-def extract_prosodic_features_optimized(audio_path):
-    """최적화된 단일 오디오 파일 prosodic features 추출"""
+def extract_prosodic_features_from_buffer(y, sr):
+    """최적화된 인메모리 오디오 prosodic features 추출"""
     try:
-        sound = parselmouth.Sound(audio_path)
+        sound = parselmouth.Sound(y, sampling_frequency=sr)
         pitch = sound.to_pitch_ac(time_step=0.01, pitch_floor=75, pitch_ceiling=500)
         f0_values = pitch.selected_array['frequency']
         f0_values = f0_values[f0_values > 0]
@@ -60,7 +60,6 @@ def extract_prosodic_features_optimized(audio_path):
         intensity = sound.to_intensity(minimum_pitch=75)
         intensity_values = intensity.values.T.flatten()
         
-        y, sr = librosa.load(audio_path, sr=16000)
         duration = len(y) / sr
         
         S = np.abs(librosa.stft(y, hop_length=512))
@@ -76,7 +75,6 @@ def extract_prosodic_features_optimized(audio_path):
         voiced_ratio = optimized_voiced_ratio(y, sr)
         
         return {
-            'file_name': os.path.basename(audio_path),
             'f0_mean': float(np.mean(f0_values)) if len(f0_values) > 0 else 0.0,
             'f0_std': float(np.std(f0_values)) if len(f0_values) > 0 else 0.0,
             'f0_range': float(np.ptp(f0_values)) if len(f0_values) > 0 else 0.0,
@@ -98,5 +96,5 @@ def extract_prosodic_features_optimized(audio_path):
         }
         
     except Exception as e:
-        print(f"❌ 특성 추출 실패 {os.path.basename(audio_path)}: {e}")
+        print(f"❌ 특성 추출 실패: {e}")
         return None

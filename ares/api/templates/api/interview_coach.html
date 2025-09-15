@@ -123,6 +123,10 @@
             <h2>최종 분석 결과</h2>
             <div id="results-tables"></div>
         </div>
+        <div class="panel">
+            <h2>실시간 분석 로그</h2>
+            <pre id="realtime-log" style="background-color: #2d3748; color: #f7fafc; padding: 16px; border-radius: 8px; max-height: 300px; overflow-y: auto; white-space: pre-wrap; word-wrap: break-word;"></pre>
+        </div>
     </div>
 
     <script>
@@ -134,6 +138,7 @@
             analysisStatus: document.getElementById('analysis-status'),
             resultsContainer: document.getElementById('resultsContainer'),
             resultsTables: document.getElementById('results-tables'),
+            logContainer: document.getElementById('realtime-log'),
         };
 
         let socket, localStream, mediaRecorder;
@@ -190,6 +195,7 @@
             elems.resultsContainer.style.display = 'none';
             elems.analysisStatus.style.display = 'none';
             elems.transcription.textContent = '답변을 말씀해주세요...';
+            elems.logContainer.textContent = ''; // 로그 초기화
             mediaRecorder.start(1000);
             sendSocketMessage('toggle_analysis', { analyze: true });
         });
@@ -204,19 +210,23 @@
             switch (eventName) {
                 case 'speech_update':
                     elems.transcription.textContent = data.text;
+                    logToScreen(`[Speech] ${data.text}`);
                     break;
                 case 'analysis_pending':
                     elems.analysisStatus.className = 'panel status-pending';
                     elems.analysisStatus.textContent = data.message;
                     elems.analysisStatus.style.display = 'block';
+                    logToScreen(`[System] ${data.message}`);
                     break;
                 case 'voice_scores_update':
                 case 'video_analysis_update':
+                    logToScreen(`[${eventName}] ${JSON.stringify(data, null, 2)}`);
                     updateResults(eventName, data);
                     break;
                 case 'error':
                     elems.analysisStatus.className = 'panel status-error';
                     elems.analysisStatus.textContent = `오류: ${data.message}`;
+                    logToScreen(`[Error] ${data.message}`);
                     break;
             }
         }
@@ -232,6 +242,13 @@
                 elems.startBtn.disabled = false;
                 results = {}; // Reset for next round
             }
+        }
+
+        function logToScreen(message) {
+            const now = new Date();
+            const timestamp = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
+            elems.logContainer.innerHTML += `[${timestamp}] ${message}\n\n`;
+            elems.logContainer.scrollTop = elems.logContainer.scrollHeight;
         }
 
         function renderResultsTable(voice, video) {

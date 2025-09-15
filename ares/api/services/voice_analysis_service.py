@@ -4,7 +4,7 @@ import numpy as np
 import traceback
 
 # 모듈화된 음향 특성 추출 함수를 임포트합니다.
-from ares.api.utils.audio_utils import extract_prosodic_features_optimized
+from ares.api.utils.audio_utils import extract_prosodic_features_from_buffer
 
 # ==============================================================================
 # 점수 계산 로직 (calculate_scores_improved.py에서 가져옴)
@@ -92,12 +92,12 @@ def calculate_scores_for_single_file(df):
 # 서비스 메인 함수
 # ==============================================================================
 
-def analyze_voice_from_file(audio_path: str, transcript: str, gender: str = 'unknown') -> dict:
+def analyze_voice_from_buffer(audio_buffer: np.ndarray, sr: int, transcript: str, gender: str = 'unknown') -> dict:
     """
-    녹음된 오디오 파일과 텍스트를 기반으로 음성 점수를 계산합니다.
+    오디오 버퍼와 텍스트를 기반으로 음성 점수를 계산합니다.
     """
     try:
-        acoustic_features = extract_prosodic_features_optimized(audio_path)
+        acoustic_features = extract_prosodic_features_from_buffer(audio_buffer, sr)
         if not acoustic_features:
             print("음향 특성 추출에 실패했습니다.")
             return None
