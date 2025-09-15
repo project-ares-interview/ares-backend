@@ -1,13 +1,14 @@
 # ares/api/consumers.py
-import json
 import base64
 import time
 import threading
 import asyncio
-import uuid
-import wave
-import os
+import io
+import cv2
 
+# 오디오 디코딩을 위해 pydub을 사용합니다.
+# 시스템에 FFmpeg이 설치되어 있어야 합니다. (https://ffmpeg.org/download.html)
+from pydub import AudioSegment
 import numpy as np
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
 
@@ -101,7 +102,9 @@ class InterviewConsumer(AsyncJsonWebsocketConsumer):
                 "metrics": InterviewMetrics(),
                 "processing_active": False,
                 "stt_recognizer": SpeechToTextFromStream(recognized_callback=stt_callback),
-                "audio_buffer": bytearray(),
+                "audio_buffer": bytearray(),      # 최종 분석용 PCM 데이터
+                "opus_buffer": bytearray(),       # 실시간 디코딩용 Opus 데이터
+                "processed_duration_ms": 0,   # 기처리된 오디오 길이 (ms)
                 "full_transcript": [],
             }
         await self.send_json({"event": "connection_status", "data": {"status": "connected"}})
@@ -129,10 +132,13 @@ class InterviewConsumer(AsyncJsonWebsocketConsumer):
                 frame = cv2.imdecode(np.frombuffer(base64.b64decode(encoded), np.uint8), cv2.IMREAD_COLOR)
                 if frame is not None:
                     video_metrics, _ = process_frame(frame, session["metrics"])
-
-                    print(video_metrics)
-                    # Optionally send real-time non-verbal metrics if needed
-                    # await self.send_json({"event": "realtime_metrics", "data": video_metrics})
+                    
+                    # 실시간 비디오 메트릭 전송
+                    if video_metrics:
+                        await self.send_json({
+                            "event": "realtime_video_update",
+                            "data": video_metrics
+                        })
         except Exception as e:
             print(f"[{self.sid}] 비디오 프레임 처리 오류: {e}")
 
@@ -140,10 +146,36 @@ class InterviewConsumer(AsyncJsonWebsocketConsumer):
         session = client_sessions.get(self.sid)
         if not session or not session["metrics"].analyzing: return
         try:
-            audio_data = base64.b64decode(data.get("audio"))
-            session["audio_buffer"].extend(audio_data)
-            if session.get("stt_recognizer"): 
-                session["stt_recognizer"].write_chunk(audio_data)
+            audio_data_opus = base64.b64decode(data.get("audio"))
+
+            # STT 서비스에는 원본 Opus 데이터를 전송
+            if session.get("stt_recognizer"):
+                session["stt_recognizer"].write_chunk(audio_data_opus)
+
+            # Opus 버퍼에 데이터 추가
+            session["opus_buffer"].extend(audio_data_opus)
+
+            # 점진적 디코딩 및 실시간 분석
+            try:
+                full_opus_stream = io.BytesIO(session["opus_buffer"])
+                opus_segment = AudioSegment.from_file(full_opus_stream, format="webm")
+                
+                new_duration_ms = len(opus_segment)
+                prev_duration_ms = session.get("processed_duration_ms", 0)
+
+                if new_duration_ms > prev_duration_ms:
+                    # 새로 추가된 오디오 부분만 슬라이싱
+                    new_audio_part = opus_segment[prev_duration_ms:]
+                    
+                    # PCM으로 변환하여 최종 분석 버퍼에 추가
+                    pcm_segment = new_audio_part.set_frame_rate(16000).set_channels(1)
+                    session["audio_buffer"].extend(pcm_segment.raw_data)
+                    session["processed_duration_ms"] = new_duration_ms
+
+            except Exception as e:
+                # 아직 데이터가 충분하지 않으면 디코딩 오류 발생 가능
+                print(f"[{self.sid}] 오디오 청크 디코딩/분석 경고: {e}")
+
         except Exception as e:
             print(f"[{self.sid}] 오디오 청크 처리 오류: {e}")
 
@@ -154,7 +186,10 @@ class InterviewConsumer(AsyncJsonWebsocketConsumer):
         session["metrics"].analyzing = is_analyzing
         if is_analyzing:
             session["metrics"].analysis_start_time = time.time()
+            # 분석 시작 시 버퍼 초기화
             session["audio_buffer"].clear()
+            session["opus_buffer"].clear()
+            session["processed_duration_ms"] = 0
             session["full_transcript"].clear()
         await self.send_json({"event": "analysis_status", "data": {"analyzing": is_analyzing}})
 

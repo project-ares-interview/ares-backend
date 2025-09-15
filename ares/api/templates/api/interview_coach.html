@@ -61,6 +61,13 @@
         .btn-danger:hover { background-color: #c53030; }
         .btn:disabled { background-color: #cbd5e0; cursor: not-allowed; }
 
+        .layout-grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 20px;
+            align-items: flex-start;
+        }
+
         #transcription {
             background: #f7fafc;
             border: 1px solid var(--border-color);
@@ -100,25 +107,80 @@
         }
         td:first-child { font-weight: 500; color: var(--text-secondary); width: 30%; }
         td:last-child { font-weight: 600; font-size: 1.1rem; }
+
+        .realtime-feedback {
+            position: sticky;
+            top: 20px;
+        }
+        .feedback-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .feedback-item:last-child {
+            border-bottom: none;
+        }
+        .feedback-label {
+            color: var(--text-secondary);
+        }
+        .feedback-value {
+            font-weight: 600;
+        }
+        .volume-bar-container {
+            width: 100%;
+            height: 20px;
+            background-color: var(--border-color);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .volume-bar {
+            width: 0%;
+            height: 100%;
+            background-color: var(--secondary-color);
+            transition: width 0.1s ease-in-out;
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="panel video-panel">
-            <h2>AI 면접 코칭</h2>
-            <div class="video-container">
-                <video id="localVideo" autoplay playsinline muted></video>
+        <div class="layout-grid">
+            <div class="main-content">
+                <div class="panel video-panel">
+                    <h2>AI 면접 코칭</h2>
+                    <div class="video-container">
+                        <video id="localVideo" autoplay playsinline muted></video>
+                    </div>
+                </div>
+                <div class="panel controls-panel">
+                    <div class="controls">
+                        <button id="startBtn" class="btn btn-primary">분석 시작</button>
+                        <button id="finishBtn" class="btn btn-danger" disabled>분석 종료 및 결과 확인</button>
+                    </div>
+                    <h4>실시간 답변</h4>
+                    <div id="transcription">분석 시작 버튼을 누르면 음성 인식이 시작됩니다.</div>
+                </div>
+            </div>
+            <div class="side-content">
+                <div class="panel realtime-feedback">
+                    <h2>실시간 피드백</h2>
+                    <div class="feedback-item">
+                        <span class="feedback-label">자세 움직임</span>
+                        <span id="rt-posture" class="feedback-value">대기 중...</span>
+                    </div>
+                    <div class="feedback-item">
+                        <span class="feedback-label">머리 움직임</span>
+                        <span id="rt-head" class="feedback-value">대기 중...</span>
+                    </div>
+                    <div class="feedback-item">
+                        <span class="feedback-label">미소 시간</span>
+                        <span id="rt-smile" class="feedback-value">대기 중...</span>
+                    </div>
+                </div>
             </div>
         </div>
-        <div class="panel controls-panel">
-            <div class="controls">
-                <button id="startBtn" class="btn btn-primary">분석 시작</button>
-                <button id="finishBtn" class="btn btn-danger" disabled>분석 종료 및 결과 확인</button>
-            </div>
-            <h4>실시간 답변</h4>
-            <div id="transcription">분석 시작 버튼을 누르면 음성 인식이 시작됩니다.</div>
-        </div>
-        <div id="analysis-status" class="panel"></div>
+
+        <div id="analysis-status" class="panel" style="display: none;"></div>
         <div id="resultsContainer" class="panel results-container">
             <h2>최종 분석 결과</h2>
             <div id="results-tables"></div>
@@ -139,9 +201,15 @@
             resultsContainer: document.getElementById('resultsContainer'),
             resultsTables: document.getElementById('results-tables'),
             logContainer: document.getElementById('realtime-log'),
+            rt: {
+                posture: document.getElementById('rt-posture'),
+                head: document.getElementById('rt-head'),
+                smile: document.getElementById('rt-smile'),
+            }
         };
 
-        let socket, localStream, mediaRecorder;
+        let socket, localStream, mediaRecorder, videoFrameSender;
+        const canvas = document.createElement('canvas');
 
         window.addEventListener('load', () => {
             setupMedia();
@@ -196,21 +264,50 @@
             elems.analysisStatus.style.display = 'none';
             elems.transcription.textContent = '답변을 말씀해주세요...';
             elems.logContainer.textContent = ''; // 로그 초기화
-            mediaRecorder.start(1000);
+            resetRealtimeFeedback();
+            mediaRecorder.start(1000); // 오디오 녹음 시작
+            startSendingVideoFrames(); // 비디오 프레임 전송 시작
             sendSocketMessage('toggle_analysis', { analyze: true });
         });
 
         elems.finishBtn.addEventListener('click', () => {
             elems.finishBtn.disabled = true;
             mediaRecorder.stop();
+            stopSendingVideoFrames(); // 비디오 프레임 전송 중지
             sendSocketMessage('finish_analysis', {});
         });
+
+        function startSendingVideoFrames() {
+            const video = elems.video;
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            const context = canvas.getContext('2d');
+
+            videoFrameSender = setInterval(() => {
+                if (socket && socket.readyState === WebSocket.OPEN) {
+                    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+                    const imageData = canvas.toDataURL('image/jpeg', 0.7); // 품질 70% JPEG
+                    sendSocketMessage('video_frame', { image: imageData });
+                }
+            }, 200); // 500ms 간격 (초당 2프레임)
+        }
+
+        function stopSendingVideoFrames() {
+            if (videoFrameSender) {
+                clearInterval(videoFrameSender);
+                videoFrameSender = null;
+            }
+        }
 
         function handleSocketEvent(eventName, data) {
             switch (eventName) {
                 case 'speech_update':
                     elems.transcription.textContent = data.text;
                     logToScreen(`[Speech] ${data.text}`);
+                    break;
+                case 'realtime_video_update':
+                    updateRealtimeVideoFeedback(data);
+                    logToScreen(`[Video Metrics] ${JSON.stringify(data, null, 2)}`);
                     break;
                 case 'analysis_pending':
                     elems.analysisStatus.className = 'panel status-pending';
@@ -242,6 +339,19 @@
                 elems.startBtn.disabled = false;
                 results = {}; // Reset for next round
             }
+        }
+
+        function resetRealtimeFeedback() {
+            elems.rt.posture.textContent = '대기 중...';
+            elems.rt.head.textContent = '대기 중...';
+            elems.rt.smile.textContent = '대기 중...';
+        }
+
+        function updateRealtimeVideoFeedback(data) {
+            if (!data) return;
+            elems.rt.posture.textContent = data.posture_sway;
+            elems.rt.head.textContent = data.nod_count;
+            elems.rt.smile.textContent = data.total_smile_time;
         }
 
         function logToScreen(message) {
