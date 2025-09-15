@@ -154,11 +154,11 @@
                 </div>
                 <div class="panel controls-panel">
                     <div class="controls">
-                        <button id="startBtn" class="btn btn-primary">분석 시작</button>
+                        <button id="startBtn" class="btn btn-primary" disabled>분석 시작</button>
                         <button id="finishBtn" class="btn btn-danger" disabled>분석 종료 및 결과 확인</button>
                     </div>
                     <h4>실시간 답변</h4>
-                    <div id="transcription">분석 시작 버튼을 누르면 음성 인식이 시작됩니다.</div>
+                    <div id="transcription">카메라 및 마이크 권한을 허용해주세요...</div>
                 </div>
             </div>
             <div class="side-content">
@@ -208,65 +208,121 @@
             }
         };
 
-        let socket, localStream, mediaRecorder, videoFrameSender;
-        let recordedChunks = [];
+        let resultsSocket, audioSocket, videoSocket;
+        let localStream, videoFrameSender;
+        let audioContext, audioProcessor, audioSource;
         const canvas = document.createElement('canvas');
 
-        window.addEventListener('load', () => {
-            setupMedia();
-            setupWebSocket();
+        let fullTranscript = '';
+        let interimTranscript = '';
+
+        function generateUUID() {
+            return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
+                (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
+            );
+        }
+
+        window.addEventListener('load', async () => {
+            await setupMedia();
+            setupWebSockets();
         });
 
+        function setupWebSockets() {
+            const sessionId = generateUUID();
+            const wsScheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
+            const host = window.location.host;
+
+            resultsSocket = new WebSocket(`${wsScheme}://${host}/ws/interview/results/${sessionId}/`);
+            audioSocket = new WebSocket(`${wsScheme}://${host}/ws/interview/audio/${sessionId}/`);
+            videoSocket = new WebSocket(`${wsScheme}://${host}/ws/interview/video/${sessionId}/`);
+
+            resultsSocket.onmessage = (event) => {
+                const content = JSON.parse(event.data);
+                handleSocketEvent(content.event, content.data);
+            };
+
+            [resultsSocket, audioSocket, videoSocket].forEach(socket => {
+                socket.onopen = () => console.log(`${socket.url} connected.`);
+                socket.onclose = () => console.log(`${socket.url} disconnected.`);
+                socket.onerror = (err) => console.error(`${socket.url} error:`, err);
+            });
+        }
+        
         function setupMedia() {
-            navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 }, audio: true })
+            return navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 }, audio: true })
                 .then(stream => {
                     localStream = stream;
                     elems.video.srcObject = stream;
                     setupAudioRecording(stream);
+                    elems.startBtn.disabled = false;
+                    elems.transcription.textContent = '분석 시작 버튼을 누르면 음성 인식이 시작됩니다.';
                 })
-                .catch(err => alert('카메라/마이크 권한을 확인해주세요.'));
-        }
-
-        function setupWebSocket() {
-            const wsScheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
-            const wsPath = `${wsScheme}://${window.location.host}/ws/interview/coach/`;
-            socket = new WebSocket(wsPath);
-            socket.onmessage = (event) => {
-                const content = JSON.parse(event.data);
-                handleSocketEvent(content.event, content.data);
-            };
+                .catch(err => {
+                    console.error("getUserMedia error:", err);
+                    elems.transcription.innerHTML = '<strong>카메라/마이크 권한이 필요합니다.</strong><br>브라우저 설정에서 권한을 허용한 후 페이지를 새로고침해주세요.';
+                });
         }
 
         function setupAudioRecording(stream) {
-            const audioStream = new MediaStream(stream.getAudioTracks());
-            mediaRecorder = new MediaRecorder(audioStream, { mimeType: 'audio/webm;codecs=opus' });
+            audioContext = new (window.AudioContext || window.webkitAudioContext)(); // 샘플 레이트 지정 제거
+            audioSource = audioContext.createMediaStreamSource(stream);
+            
+            // bufferSize: 4096, inputChannels: 1, outputChannels: 1
+            audioProcessor = audioContext.createScriptProcessor(4096, 1, 1);
 
-            mediaRecorder.ondataavailable = event => {
-                if (event.data.size > 0) {
-                    recordedChunks.push(event.data);
-                    
-                    // STT를 위해 실시간으로 청크 전송
-                    const reader = new FileReader();
-                    reader.onload = () => {
-                        const base64Audio = reader.result.split(',')[1];
-                        sendSocketMessage('audio_chunk', { audio: base64Audio });
-                    };
-                    reader.readAsDataURL(event.data);
+            const targetSampleRate = 16000;
+
+            audioProcessor.onaudioprocess = (e) => {
+                if (!audioSocket || audioSocket.readyState !== WebSocket.OPEN) return;
+
+                const inputData = e.inputBuffer.getChannelData(0);
+                const sourceSampleRate = audioContext.sampleRate;
+
+                // 16000Hz로 리샘플링
+                const resampledData = resampleBuffer(inputData, sourceSampleRate, targetSampleRate);
+
+                // Float32Array를 Int16Array (raw PCM)로 변환
+                const int16Data = new Int16Array(resampledData.length);
+                for (let i = 0; i < resampledData.length; i++) {
+                    int16Data[i] = Math.max(-1, Math.min(1, resampledData[i])) * 32767;
                 }
-            };
-
-            mediaRecorder.onstop = () => {
-                const audioBlob = new Blob(recordedChunks, { type: 'audio/webm' });
-                const reader = new FileReader();
-                reader.onload = () => {
-                    const base64Audio = reader.result.split(',')[1];
-                    sendSocketMessage('finish_analysis', { audio: base64Audio });
-                };
-                reader.readAsDataURL(audioBlob);
+                
+                // 원본 바이너리 PCM 데이터를 audioSocket으로 전송
+                audioSocket.send(int16Data.buffer);
             };
         }
 
-        function sendSocketMessage(event, data) {
+        /**
+         * 오디오 버퍼를 리샘플링하는 함수 (간단한 선형 보간 방식)
+         * @param {Float32Array} inputBuffer - 원본 오디오 데이터
+         * @param {number} sourceSampleRate - 원본 샘플 레이트
+         * @param {number} targetSampleRate - 목표 샘플 레이트
+         * @returns {Float32Array} - 리샘플링된 오디오 데이터
+         */
+        function resampleBuffer(inputBuffer, sourceSampleRate, targetSampleRate) {
+            if (sourceSampleRate === targetSampleRate) {
+                return inputBuffer;
+            }
+            const sampleRateRatio = sourceSampleRate / targetSampleRate;
+            const newLength = Math.round(inputBuffer.length / sampleRateRatio);
+            const result = new Float32Array(newLength);
+            let offsetResult = 0;
+            let offsetBuffer = 0;
+            while (offsetResult < result.length) {
+                const nextOffsetBuffer = Math.round((offsetResult + 1) * sampleRateRatio);
+                let accum = 0, count = 0;
+                for (let i = offsetBuffer; i < nextOffsetBuffer && i < inputBuffer.length; i++) {
+                    accum += inputBuffer[i];
+                    count++;
+                }
+                result[offsetResult] = count > 0 ? accum / count : 0;
+                offsetResult++;
+                offsetBuffer = nextOffsetBuffer;
+            }
+            return result;
+        }
+
+        function sendJsonMessage(socket, event, data) {
             if (socket && socket.readyState === WebSocket.OPEN) {
                 socket.send(JSON.stringify({ event, data }));
             }
@@ -277,22 +333,40 @@
             elems.finishBtn.disabled = false;
             elems.resultsContainer.style.display = 'none';
             elems.analysisStatus.style.display = 'none';
+
+            fullTranscript = '';
+            interimTranscript = '';
             elems.transcription.textContent = '답변을 말씀해주세요...';
             elems.logContainer.textContent = ''; // 로그 초기화
             resetRealtimeFeedback();
             
-            // 녹음 시작
-            recordedChunks = []; // 버퍼 초기화
-            mediaRecorder.start(1000); // 1초 간격으로 청크 생성하여 ondataavailable 호출
+            // 오디오 처리 시작
+            if (audioContext.state === 'suspended') {
+                audioContext.resume();
+            }
+            audioSource.connect(audioProcessor);
+            audioProcessor.connect(audioContext.destination); // 이 라인이 있어야 onaudioprocess가 호출됨
 
             startSendingVideoFrames(); // 비디오 프레임 전송 시작
-            sendSocketMessage('toggle_analysis', { analyze: true });
+            sendJsonMessage(resultsSocket, 'toggle_analysis', { analyze: true });
         });
 
         elems.finishBtn.addEventListener('click', () => {
             elems.finishBtn.disabled = true;
             stopSendingVideoFrames(); // 비디오 프레임 전송 중지
-            mediaRecorder.stop(); // 녹음 중지 -> onstop 이벤트 트리거
+
+            // 오디오 처리 중지
+            if(audioSource) audioSource.disconnect();
+            if(audioProcessor) audioProcessor.disconnect();
+            
+            // 미디어 스트림 중지 (카메라/마이크 끄기)
+            if (localStream) {
+                localStream.getTracks().forEach(track => track.stop());
+                localStream = null;
+                elems.video.srcObject = null;
+            }
+            
+            sendJsonMessage(resultsSocket, 'finish_analysis_signal', {});
         });
 
         function startSendingVideoFrames() {
@@ -302,12 +376,13 @@
             const context = canvas.getContext('2d');
 
             videoFrameSender = setInterval(() => {
-                if (socket && socket.readyState === WebSocket.OPEN) {
+                if (videoSocket && videoSocket.readyState === WebSocket.OPEN) {
                     context.drawImage(video, 0, 0, canvas.width, canvas.height);
-                    const imageData = canvas.toDataURL('image/jpeg', 0.7); // 품질 70% JPEG
-                    sendSocketMessage('video_frame', { image: imageData });
+                    canvas.toBlob(blob => {
+                        if (blob) videoSocket.send(blob);
+                    }, 'image/jpeg', 0.7);
                 }
-            }, 200); // 500ms 간격 (초당 2프레임)
+            }, 500); // 500ms 간격 (초당 2프레임)
         }
 
         function stopSendingVideoFrames() {
@@ -320,8 +395,17 @@
         function handleSocketEvent(eventName, data) {
             switch (eventName) {
                 case 'speech_update':
-                    elems.transcription.textContent = data.text;
-                    logToScreen(`[Speech] ${data.text}`);
+                    if (!data.text) return; // 비어있는 텍스트는 무시
+
+                    if (data.type === 'recognized') {
+                        // 최종 인식된 텍스트는 전체 스크립트에 추가
+                        fullTranscript += data.text + ' ';
+                        interimTranscript = ''; // 중간 텍스트 초기화
+                    } else { // 'recognizing' 등 중간 결과
+                        interimTranscript = data.text;
+                    }
+                    elems.transcription.textContent = fullTranscript + interimTranscript;
+                    logToScreen(`[Speech - ${data.type}] ${data.text}`);
                     break;
                 case 'realtime_video_update':
                     updateRealtimeVideoFeedback(data);
