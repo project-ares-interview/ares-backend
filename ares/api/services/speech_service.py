@@ -83,7 +83,8 @@ class SpeechToTextFromStream:
     def recognized_handler(self, event: speechsdk.SpeechRecognitionEventArgs):
         """인식 완료 이벤트 핸들러"""
         if event.result.reason == speechsdk.ResultReason.RecognizedSpeech:
-            self.recognized_callback(event.result.text, "recognized")
+            duration_sec = event.result.duration / 10_000_000  # 100ns ticks to seconds
+            self.recognized_callback(event.result.text, duration_sec, "recognized")
 
     def session_stopped_handler(self, event: speechsdk.SessionEventArgs):
         """세션 중지 이벤트 핸들러"""
