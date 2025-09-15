@@ -9,7 +9,7 @@ _log = get_logger("speech")
 # 타입 전용 임포트(런타임 로드 안 됨)
 if TYPE_CHECKING:
     import azure.cognitiveservices.speech as speechsdk_t
-    from azure.cognitiveservices.speech import SpeechConfig  # 타입 심볼만
+    from azure.cognitiveservices.speech import SpeechConfig, AudioDataStream, AudioStreamFormat
 
 # 런타임 의존성
 try:
@@ -51,13 +51,18 @@ class SpeechToTextFromStream:
     오디오 스트림으로부터 실시간 STT를 수행하는 클래스.
     세션 기반으로 동작하며, 콜백을 통해 결과를 비동기적으로 전달합니다.
     """
-    def __init__(self, recognized_callback, locale: str = DEFAULT_LOCALE):
+    def __init__(self, recognized_callback, locale: str = DEFAULT_LOCALE, stream_format: "AudioStreamFormat" = None):
         if not _ensure_sdk_and_env() or not speechsdk:
             raise RuntimeError("Azure Speech SDK가 설정되지 않았습니다.")
 
         self.locale = locale
         self.recognized_callback = recognized_callback
-        self.push_stream = speechsdk.audio.PushAudioInputStream()
+        
+        # 스트림 포맷이 제공되면 해당 포맷을 사용하고, 아니면 기본 WAV 헤더를 기대하는 포맷을 사용
+        if stream_format:
+            self.push_stream = speechsdk.audio.PushAudioInputStream(stream_format)
+        else:
+            self.push_stream = speechsdk.audio.PushAudioInputStream()
         
         self.speech_config = _speech_config()
         if not self.speech_config:
