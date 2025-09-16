@@ -30,7 +30,7 @@ session_lock = threading.Lock()
 # ==============================================================================
 # Analysis Worker Thread (수정됨)
 # ==============================================================================
-def analysis_worker(sid, audio_buffer, full_transcript):
+def analysis_worker(sid, audio_buffer, full_transcript, user_gender):
     """백그라운드에서 최종 음성/영상 분석을 실행하고 결과를 그룹으로 전송"""
     group_name = f"session_{sid}"
     channel_layer = get_channel_layer()
@@ -44,7 +44,7 @@ def analysis_worker(sid, audio_buffer, full_transcript):
             
             audio_data = np.frombuffer(audio_buffer, dtype=np.int16).astype(np.float32) / 32768.0
             sample_rate = 16000
-            voice_scores = analyze_voice_from_buffer(audio_data, sample_rate, full_transcript)
+            voice_scores = analyze_voice_from_buffer(audio_data, sample_rate, full_transcript, gender=user_gender)
             
             message_data = {"event": "voice_scores_update", "data": voice_scores} if voice_scores else {"event": "error", "data": {"message": "음성 점수 분석에 실패했습니다."}}
             async_to_sync(channel_layer.group_send)(group_name, {"type": "analysis.event", "data": message_data})
@@ -118,7 +118,13 @@ class InterviewResultsConsumer(AsyncJsonWebsocketConsumer):
                 final_audio_buffer = session.get("final_audio_buffer", bytearray())
                 full_transcript = " ".join(session.get("full_transcript", []))
 
-            threading.Thread(target=analysis_worker, args=(self.sid, final_audio_buffer, full_transcript), daemon=True).start()
+                        # Get user gender from scope
+            user = self.scope['user']
+            user_gender = 'unknown'
+            if user.is_authenticated and hasattr(user, 'gender') and user.gender:
+                user_gender = user.gender.upper() # Ensure it's 'MALE' or 'FEMALE'
+            
+            threading.Thread(target=analysis_worker, args=(self.sid, final_audio_buffer, full_transcript, user_gender), daemon=True).start()
 
     async def analysis_event(self, event):
         """다른 consumer나 worker로부터 받은 분석 결과를 클라이언트에 전송"""
