@@ -28,8 +28,6 @@ from ares.api.views.v1.interview import (
     InterviewFinishAPIView,
     InterviewReportAPIView, # <--- Added this line
     FindCompaniesView,
-    StartInterviewView,
-    AnalyzeAnswerView,
 )
 from ares.api.views.v1.resume_analysis import ResumeAnalysisAPIView
 
@@ -234,7 +232,6 @@ urlpatterns = [
         name="profile-job-interest-detail",
     ),
     path("user/", UserDetailView.as_view(), name="user_detail"),
-    #
     path("analyze/", AnalyzeView.as_view(), name="analyze"),
     path("analysis/percentiles/", PercentileAnalysisView.as_view(), name="v1-analysis-percentiles"),
     path("analysis/advice/", GenerateAIAdviceView.as_view(), name="v1-analysis-advice"),
@@ -265,16 +262,6 @@ urlpatterns = [
         "interview/find-companies/",
         FindCompaniesView.as_view(),
         name="interview-find-companies",
-    ),
-    path(
-        "interview/start/",
-        StartInterviewView.as_view(),
-        name="interview-start",
-    ),
-    path(
-        "interview/analyze/",
-        AnalyzeAnswerView.as_view(),
-        name="interview-analyze",
     ),
     path("interview/coach/", interview_coach_view, name="interview-coach"),
 ]

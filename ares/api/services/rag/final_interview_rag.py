@@ -1,9 +1,8 @@
 import json
-import sys
+import traceback
+
 from openai import AzureOpenAI
 from unidecode import unidecode
-import re
-import traceback
 
 from django.conf import settings
 
@@ -11,8 +10,12 @@ from django.conf import settings
 from .new_azure_rag_llamaindex import AzureBlobRAGSystem
 # 웹 검색 도구 임포트
 from .tool_code import google_search
+# [수정] INTERVIEWER_PERSONAS를 prompt.py에서 직접 임포트합니다.
 from ares.api.services.prompt import (
-    prompt_rag_question_generation,
+    INTERVIEWER_PERSONAS,
+    prompt_interview_designer,
+    DIFFICULTY_INSTRUCTIONS,
+    prompt_resume_analyzer,
     prompt_rag_answer_analysis,
     prompt_rag_json_correction,
     prompt_rag_follow_up_question,
@@ -44,23 +47,30 @@ class RAGInterviewBot:
         job_title: str,
         container_name: str,
         index_name: str,
+        difficulty: str = "normal",
+        interviewer_mode: str = "team_lead",  # [추가] 면접관 모드 파라미터
         ncs_context: dict | None = None,
         jd_context: str = "",
         resume_context: str = "",
         research_context: str = "",
         **kwargs,
     ):
-        print("🤖 RAG 전용 사업 분석 면접 시스템 초기화...")
+        print(f"🤖 RAG 전용 사업 분석 면접 시스템 초기화 (면접관: {interviewer_mode})...")
         self.company_name = company_name
         self.job_title = job_title
+        self.difficulty = difficulty
+        self.interviewer_mode = interviewer_mode  # [추가] 면접관 모드 저장
         self.ncs_context = ncs_context or {}
         self.jd_context = jd_context
         self.resume_context = resume_context
         self.research_context = research_context
 
+        # [추가] 선택된 페르소나 정보를 self.persona에 저장
+        self.persona = INTERVIEWER_PERSONAS.get(self.interviewer_mode, INTERVIEWER_PERSONAS["team_lead"])
+
         # API 정보 로드 (Django settings 사용)
-        self.endpoint = getattr(settings, 'AZURE_OPENAI_ENDPOINT', None)
-        self.api_key = getattr(settings, 'AZURE_OPENAI_KEY', None)
+        self.endpoint = getattr(settings, "AZURE_OPENAI_ENDPOINT", None)
+        self.api_key = getattr(settings, "AZURE_OPENAI_KEY", None)
         self.api_version = (
             getattr(settings, "AZURE_OPENAI_API_VERSION", None)
             or getattr(settings, "API_VERSION", None)
@@ -100,28 +110,31 @@ class RAGInterviewBot:
         except Exception as e:
             print(f"❌ RAG 시스템 연동 실패: {e}")
 
-    def generate_questions(self, num_questions: int = 3) -> list:
-        """RAG 기반으로 사업 현황 심층 질문 생성"""
+    def design_interview_plan(self) -> dict:
+        """RAG 기반으로 구조화된 면접 계획 생성"""
         if not self.rag_ready:
-            return []
-        print(f"\n🧠 {self.company_name} 맞춤 질문 생성 중...")
+            return {}
+        print(f"\n🧠 {self.company_name} 맞춤 면접 계획 설계 중 (난이도: {self.difficulty}, 면접관: {self.interviewer_mode})...")
         try:
-            # RAG 쿼리를 직무와 관련된 회사 정보에 초점을 맞추도록 수정
             business_info = self.rag_system.query(
                 f"{self.company_name}의 핵심 사업, 최근 실적, 주요 리스크, 그리고 {self.job_title} 직무와 관련된 회사 정보에 대해 요약해줘."
             )
 
-            # NCS 컨텍스트를 프롬프트에 추가하여 직무 관련성을 높임
             ncs_info = ""
             if self.ncs_context.get("ncs"):
                 ncs_titles = [item.get("title") for item in self.ncs_context["ncs"] if item.get("title")]
                 if ncs_titles:
-                    ncs_info = f"\n\n[NCS 직무 관련 정보]\n이 직무는 다음 NCS 역량과 관련이 깊습니다: {', '.join(ncs_titles)}."
+                    ncs_info = f"\n\nNCS 직무 관련 정보: {', '.join(ncs_titles)}."
 
-            prompt = prompt_rag_question_generation.format(
+            difficulty_instruction = DIFFICULTY_INSTRUCTIONS.get(self.difficulty, "")
+
+            # [수정] 페르소나 정보를 format에 추가
+            prompt = prompt_interview_designer.format(
+                persona_description=self.persona["persona_description"].format(company_name=self.company_name, job_title=self.job_title),
+                question_style_guide=self.persona["question_style_guide"],
                 company_name=self.company_name,
                 job_title=self.job_title,
-                num_questions=num_questions,
+                difficulty_instruction=difficulty_instruction,
                 business_info=business_info,
                 jd_context=self.jd_context,
                 resume_context=self.resume_context,
@@ -132,28 +145,56 @@ class RAGInterviewBot:
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=1000,
+                max_tokens=2000,
                 temperature=0.8,
             )
             result = safe_extract_json(response.choices[0].message.content)
-            questions = result.get("questions", [])
-            print(f"✅ {len(questions)}개의 맞춤 질문 생성 완료.")
-            return questions
+            print("✅ 구조화 면접 계획 수립 완료.")
+            return result
         except Exception as e:
-            print(f"❌ 질문 생성 실패: {e}")
-            return [
-                f"{self.company_name}의 주요 경쟁사와 비교했을 때, 우리 회사가 가진 핵심적인 기술적 우위는 무엇이라고 생각하십니까?"
-            ]
+            print(f"❌ 면접 계획 수립 실패: {e}")
+            return {}
+
+    def analyze_resume_with_rag(self) -> dict:
+        """RAG를 활용하여 이력서와 회사 정보의 연관성 분석"""
+        if not self.rag_ready or not self.resume_context:
+            return {}
+        print(f"\n📄 RAG 기반 이력서 분석 중 (면접관: {self.interviewer_mode})...")
+        try:
+            business_info = self.rag_system.query(
+                f"{self.company_name}의 핵심 사업, 최근 실적, 주요 리스크, 그리고 {self.job_title} 직무와 관련된 회사 정보에 대해 요약해줘."
+            )
+
+            # [수정] 페르소나 정보를 format에 추가
+            prompt = prompt_resume_analyzer.format(
+                persona_description=self.persona["persona_description"].format(company_name=self.company_name, job_title=self.job_title),
+                company_name=self.company_name,
+                job_title=self.job_title,
+                business_info=business_info,
+                resume_context=self.resume_context,
+            )
+
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=1500,
+                temperature=0.5,
+            )
+            result = safe_extract_json(response.choices[0].message.content)
+            print("✅ 이력서-회사 연관성 분석 완료.")
+            return result
+        except Exception as e:
+            print(f"❌ 이력서 분석 실패: {e}")
+            return {}
 
     def analyze_answer_with_rag(self, question: str, answer: str) -> dict:
         """개별 답변에 대한 상세 분석 (XAI 기반, 점수 없음)"""
         if not self.rag_ready:
             return {"error": "RAG 시스템 미준비"}
 
-        print("     (답변 분석 중...)")
+        print(f"     (답변 분석 중... 면접관: {self.interviewer_mode})")
 
         try:
-            # 외부 검색 결과를 문자열로 안전 변환
             web_result = google_search.search(queries=[f"{self.company_name} {answer}"])
             if not isinstance(web_result, str):
                 web_result = json.dumps(web_result, ensure_ascii=False)[:2000]
@@ -164,7 +205,11 @@ class RAGInterviewBot:
             f"'{answer}'라는 주장에 대한 사실관계를 확인하고 관련 데이터를 찾아줘."
         )
 
+        # [수정] 페르소나 정보를 format에 추가
         analysis_prompt = prompt_rag_answer_analysis.format(
+            persona_description=self.persona["persona_description"].format(company_name=self.company_name, job_title=self.job_title),
+            evaluation_focus=self.persona["evaluation_focus"],
+            company_name=self.company_name,
             question=question,
             answer=answer,
             internal_check=internal_check,
@@ -173,7 +218,6 @@ class RAGInterviewBot:
 
         raw_json = ""
         try:
-            # 1차: JSON 형태 유도
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
@@ -184,21 +228,18 @@ class RAGInterviewBot:
                 max_tokens=2000,
             )
             raw_json = response.choices[0].message.content or ""
-            
+
             result = safe_extract_json(raw_json)
             if result is not None:
                 return result
-            else:
-                # safe_extract_json이 None을 반환했을 경우, 추가 처리
-                raise json.JSONDecodeError("Initial JSON parsing failed, attempting self-correction", raw_json, 0)
-        
+            raise json.JSONDecodeError("Initial JSON parsing failed, attempting self-correction", raw_json, 0)
+
         except json.JSONDecodeError as e:
             _debug_print_raw_json("FIRST_PASS_FAILED", raw_json)
             print(f"⚠️ JSON 파싱 실패 ({e}), AI 자가 교정 시도.")
 
             correction_prompt = prompt_rag_json_correction
             try:
-                # 2차: 자가 교정
                 correction_response = self.client.chat.completions.create(
                     model=self.model,
                     messages=[
@@ -215,9 +256,8 @@ class RAGInterviewBot:
 
                 if final_result is not None:
                     return final_result
-                else:
-                    _debug_print_raw_json("CORRECTION_PASS_FAILED", corrected_raw)
-                    raise json.JSONDecodeError("Failed to parse AI response after self-correction", corrected_raw, 0)
+                _debug_print_raw_json("CORRECTION_PASS_FAILED", corrected_raw)
+                raise json.JSONDecodeError("Failed to parse AI response after self-correction", corrected_raw, 0)
 
             except Exception as e:
                 print(f"❌ 답변 분석 최종 실패: {e}")
@@ -229,14 +269,14 @@ class RAGInterviewBot:
             traceback.print_exc()
             return {"error": f"Failed to analyze answer: {e}"}
 
-    def print_individual_analysis(self, analysis: dict, question_num: int):
+    def print_individual_analysis(self, analysis: dict, question_num: str):
         """개별 답변에 대한 분석 결과 출력 형식"""
         if "error" in analysis:
             print(f"\n❌ 분석 오류: {analysis['error']}")
             return
 
         print("\n" + "=" * 70)
-        print(f"📊 [질문 {question_num}] 답변 상세 분석 결과")
+        print(f"📊 [{question_num}] 답변 상세 분석 결과")
         print("=" * 70)
 
         print("\n" + "-" * 30)
@@ -275,14 +315,20 @@ class RAGInterviewBot:
                 print(f"    -> {s}")
         print("=" * 70)
 
-    def generate_follow_up_question(self, original_question: str, answer: str, analysis: dict) -> str:
+    def generate_follow_up_question(self, original_question: str, answer: str, analysis: dict, stage: str, objective: str) -> str:
         """분석 결과를 바탕으로 심층 꼬리 질문 생성"""
         try:
             suggestions = analysis.get("actionable_feedback", {}).get("suggestions_for_improvement", [])
+
+            # [수정] 페르소나 정보를 format에 추가
             prompt = prompt_rag_follow_up_question.format(
+                persona_description=self.persona["persona_description"].format(company_name=self.company_name, job_title=self.job_title),
+                company_name=self.company_name,
                 original_question=original_question,
                 answer=answer,
                 suggestions=", ".join(suggestions),
+                stage=stage,
+                objective=objective,
             )
             response = self.client.chat.completions.create(
                 model=self.model,
@@ -297,103 +343,132 @@ class RAGInterviewBot:
             return ""
 
     def conduct_interview(self):
-        """[수정] 평가 결과는 면접 종료 후 일괄 출력"""
+        """구조화된 면접 계획에 따라 면접 진행"""
         if not self.rag_ready:
             print("\n❌ RAG 시스템이 준비되지 않아 면접을 진행할 수 없습니다.")
             return
 
-        questions = self.generate_questions()
-        if not questions:
-            print("\n❌ 면접 질문을 생성하지 못했습니다.")
+        # 면접 시작 전, 이력서 분석 선행
+        resume_analysis = self.analyze_resume_with_rag()
+
+        interview_plan_data = self.design_interview_plan()
+        if not interview_plan_data or "interview_plan" not in interview_plan_data:
+            print("\n❌ 면접 계획을 수립하지 못했습니다.")
             return
 
+        interview_plan = interview_plan_data.get("interview_plan", [])
+
         print("\n" + "=" * 70)
-        print(f"🏢 {self.company_name} {self.job_title} 직무 면접을 시작하겠습니다.")
+        print(f"🏢 {self.company_name} {self.job_title} 직무 {self.interviewer_mode} 면접을 시작하겠습니다.")
+        print("면접은 총 3단계로 구성되며, 각 단계의 질문에 답변해주시면 됩니다.")
         print("면접이 종료된 후 전체 답변에 대한 상세 분석이 제공됩니다.")
         print("=" * 70)
 
         interview_transcript = []
+        question_counter = 0
 
-        for i, question in enumerate(questions, 1):
-            print(f"\n--- [질문 {i}/{len(questions)}] ---")
-            print(f"👨‍💼 면접관: {question}")
-            answer = input("💬 답변: ")
+        for i, stage_data in enumerate(interview_plan, 1):
+            stage_name = stage_data.get("stage", f"단계 {i}")
+            stage_objective = stage_data.get("objective", "N/A")
+            questions = stage_data.get("questions", [])
+
+            print(f"\n\n--- 면접 단계 {i}: {stage_name} ---")
+            print(f"🎯 이번 단계의 목표: {stage_objective}")
+
+            for q_idx, question in enumerate(questions, 1):
+                question_counter += 1
+                question_id = f"{i}-{q_idx}"
+
+                print(f"\n--- [질문 {question_id}] ---")
+                print(f"👨‍💼 면접관: {question}")
+                answer = input("💬 답변: ")
+                if answer.lower() in ["/quit", "/종료"]:
+                    break
+
+                analysis = self.analyze_answer_with_rag(question, answer)
+
+                follow_up_question = ""
+                follow_up_answer = ""
+                if "error" not in analysis:
+                    follow_up_question = self.generate_follow_up_question(
+                        original_question=question,
+                        answer=answer,
+                        analysis=analysis,
+                        stage=stage_name,
+                        objective=stage_objective
+                    )
+                    if follow_up_question:
+                        print("\n--- [꼬리 질문] ---")
+                        print(f"👨‍💼 면접관: {follow_up_question}")
+                        follow_up_answer = input("💬 답변: ")
+
+                interview_transcript.append({
+                    "question_id": question_id,
+                    "stage": stage_name,
+                    "objective": stage_objective,
+                    "question": question,
+                    "answer": answer,
+                    "analysis": analysis,
+                    "follow_up_question": follow_up_question,
+                    "follow_up_answer": follow_up_answer
+                })
+
             if answer.lower() in ["/quit", "/종료"]:
                 break
 
-            # [핵심] 평가는 수행하되, 결과는 출력하지 않고 저장만 함
-            analysis = self.analyze_answer_with_rag(question, answer)
-
-            follow_up_question = ""
-            follow_up_answer = ""
-            if "error" not in analysis:
-                follow_up_question = self.generate_follow_up_question(question, answer, analysis)
-                if follow_up_question:
-                    print(f"\n--- [꼬리 질문] ---")
-                    print(f"👨‍💼 면접관: {follow_up_question}")
-                    follow_up_answer = input("💬 답변: ")
-
-            # 현재 질문, 답변, 분석 내용, 꼬리 질문/답변을 모두 기록
-            interview_transcript.append({
-                "question_num": i,
-                "question": question,
-                "answer": answer,
-                "analysis": analysis,
-                "follow_up_question": follow_up_question,
-                "follow_up_answer": follow_up_answer
-            })
-
         print("\n🎉 면접이 종료되었습니다. 수고하셨습니다.")
 
-        # [핵심] 면접 종료 후, 저장된 모든 분석 결과를 일괄 출력
         if interview_transcript:
             print("\n\n" + "#" * 70)
             print(" 면접 전체 답변에 대한 상세 분석 리포트")
             print("#" * 70)
 
-            # 1. 개별 답변 분석 결과부터 순서대로 출력
             for item in interview_transcript:
-                self.print_individual_analysis(item["analysis"], item["question_num"])
+                self.print_individual_analysis(item["analysis"], item["question_id"])
 
-            # 2. 최종 종합 리포트 생성 및 출력 (누락 보완)
-            report = self.generate_final_report(interview_transcript)
+            report = self.generate_final_report(interview_transcript, interview_plan_data, resume_analysis)
             self.print_final_report(report)
 
-    def generate_final_report(self, transcript: list, resume_context: str = "") -> dict:
-        """면접 전체 기록을 바탕으로 최종 종합 리포트 생성"""
+    def generate_final_report(self, transcript: list, interview_plan: dict, resume_feedback_analysis: dict) -> dict:
+        """면접 전체 기록과 계획, 이력서 분석 결과를 바탕으로 최종 종합 리포트 생성"""
         print("\n\n" + "#" * 70)
-        print(" 최종 역량 분석 종합 리포트 생성 중...")
+        print(f" 최종 역량 분석 종합 리포트 생성 중... (면접관: {self.interviewer_mode})")
         print("#" * 70)
 
         try:
-            # 면접 전체 대화 내용과 개별 분석 결과를 요약하여 프롬프트에 전달
             conversation_summary = ""
             for item in transcript:
-                q_num = item["question_num"]
-                analysis_assessment = (
-                    item["analysis"]
-                    .get("content_analysis", {})
-                    .get("strategic_insight", {})
-                    .get("assessment", "분석 미완료")
-                    if isinstance(item.get("analysis"), dict) else "분석 미완료"
-                )
+                q_id = item.get("question_id", "N/A")
+                analysis_assessment = "분석 미완료"
+                if isinstance(item.get("analysis"), dict):
+                    content_analysis = item["analysis"].get("content_analysis", {})
+                    if isinstance(content_analysis, dict):
+                         strategic_insight = content_analysis.get("strategic_insight", {})
+                         if isinstance(strategic_insight, dict):
+                            analysis_assessment = strategic_insight.get("assessment", "분석 미완료")
+
                 conversation_summary += (
-                    f"질문 {q_num}: {item['question']}\n"
-                    f"답변 {q_num}: {item['answer']}\n"
+                    f"질문 {q_id} ({item.get('stage', 'N/A')}): {item.get('question', '')}\n"
+                    f"답변 {q_id}: {item.get('answer', '')}\n"
                     f"(개별 분석 요약: {analysis_assessment})\n---\n"
                 )
 
+            # [수정] 페르소나 정보를 format에 추가
             report_prompt = prompt_rag_final_report.format(
-                conversation_summary=conversation_summary,
-                resume_context=resume_context if resume_context else "제공된 이력서 내용 없음.",
+                persona_description=self.persona["persona_description"].format(company_name=self.company_name, job_title=self.job_title),
+                final_report_goal=self.persona["final_report_goal"],
+                company_name=self.company_name,
                 job_title=self.job_title,
+                conversation_summary=conversation_summary,
+                interview_plan=json.dumps(interview_plan, ensure_ascii=False),
+                resume_feedback_analysis=json.dumps(resume_feedback_analysis, ensure_ascii=False),
             )
 
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[{"role": "user", "content": report_prompt}],
                 temperature=0.3,
-                max_tokens=3000,
+                max_tokens=4000,
             )
             report_data = safe_extract_json(response.choices[0].message.content)
             return report_data
@@ -409,8 +484,11 @@ class RAGInterviewBot:
             return
 
         print("\n\n" + "=" * 70)
-        print(f"🏅 {self.company_name} {self.job_title} 지원자 최종 역량 분석 종합 리포트")
+        print(f"🏅 {self.company_name} {self.job_title} 지원자 최종 역량 분석 종합 리포트 (관점: {self.interviewer_mode})")
         print("=" * 70)
+
+        print("\n■ 면접 계획 달성도 평가\n" + "-" * 50)
+        print(report.get("assessment_of_plan_achievement", "평가 정보 없음."))
 
         print("\n■ 총평 (Overall Summary)\n" + "-" * 50)
         print(report.get("overall_summary", "요약 정보 없음."))
@@ -425,29 +503,57 @@ class RAGInterviewBot:
 
         if "resume_feedback" in report:
             print("\n■ 이력서 피드백 (Resume Feedback)\n" + "-" * 50)
-            print(f"  {report.get('resume_feedback', 'N/A')}")
+            feedback = report.get("resume_feedback", {})
+            if isinstance(feedback, dict):
+                print(f"  - 직무 적합성: {feedback.get('job_fit_assessment', 'N/A')}")
+                print(f"  - 강점 및 기회: {feedback.get('strengths_and_opportunities', 'N/A')}")
+                print(f"  - 개선점: {feedback.get('gaps_and_improvements', 'N/A')}")
+            else:
+                 print(f"  {feedback}")
+
+        if "question_by_question_feedback" in report:
+            print("\n■ 질문별 상세 피드백 (Question-by-Question Feedback)\n" + "-" * 50)
+            for item in report.get("question_by_question_feedback", []):
+                print(f"  - 질문: {item.get('question', 'N/A')}")
+                print(f"    - 질문 의도: {item.get('question_intent', 'N/A')}")
+                evaluation = item.get("evaluation", {})
+                if isinstance(evaluation, dict):
+                    print(f"    - 적용된 프레임워크: {evaluation.get('applied_framework', 'N/A')}")
+                    print(f"    - 피드백: {evaluation.get('feedback', 'N/A')}")
+                else:
+                    print(f"    - 피드백: {evaluation}")
+                print("    " + "-" * 20)
+
         print("\n" + "=" * 70)
 
 
 def main():
     try:
         target_container = "interview-data"
-        company_name = input("면접을 진행할 회사 이름 (예: SK하이닉스): ")
+        company_name = input("면접을 진행할 회사 이름 (예: 기아): ")
         safe_company_name_for_index = unidecode(company_name.lower()).replace(" ", "-")
         index_name = f"{safe_company_name_for_index}-report-index"
-        job_title = input("지원 직무 (예: 사업분석가): ")
+        job_title = input("지원 직무 (예: 생산 - 생산운영 및 공정기술): ")
+        difficulty = input("면접 난이도 (easy, normal, hard): ")
+        # [추가] main 함수에서 면접관 모드를 입력받음
+        interviewer_mode = input("면접관 모드 (team_lead, executive): ")
 
         print("\n" + "-" * 40)
         print(f"대상 컨테이너: {target_container}")
         print(f"회사 이름: {company_name}")
         print(f"AI Search 인덱스: {index_name}")
+        print(f"난이도: {difficulty}")
+        print(f"면접관 모드: {interviewer_mode}") # [추가]
         print("-" * 40)
 
+        # [수정] RAGInterviewBot 생성 시 interviewer_mode 전달
         bot = RAGInterviewBot(
             company_name=company_name,
             job_title=job_title,
             container_name=target_container,
-            index_name=index_name
+            index_name=index_name,
+            difficulty=difficulty,
+            interviewer_mode=interviewer_mode
         )
         bot.conduct_interview()
 

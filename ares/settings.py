@@ -45,16 +45,33 @@ AZURE_SEARCH_KEY = os.getenv("AZURE_SEARCH_KEY")
 
 ALLOWED_HOSTS: list[str] = []
 
-# Map RAG-specific environment variables
-os.environ['AZURE_OPENAI_KEY'] = os.getenv('AZURE_OPENAI_API_KEY', '')
-os.environ['AZURE_OPENAI_MODEL'] = os.getenv('AZURE_OPENAI_DEPLOYMENT_NAME', '')
-os.environ['AZURE_EMBEDDING_MODEL'] = os.getenv('AZURE_OPENAI_EMBEDDING_DEPLOYMENT', '')
-# Ensure API_VERSION is also set if not already
-if 'API_VERSION' not in os.environ:
-    os.environ['API_VERSION'] = os.getenv('AZURE_OPENAI_API_VERSION', '2024-02-15-preview')
+# RAG-specific settings from environment variables
 
-# Map Azure Blob Container Name
-os.environ['AZURE_BLOB_CONTAINER'] = os.getenv('AZURE_BLOB_CONTAINER', 'interview-data')
+# 1. Define settings variables for the whole app from os.getenv
+AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT")
+AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
+AZURE_OPENAI_DEPLOYMENT_NAME = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME")
+AZURE_OPENAI_EMBEDDING_DEPLOYMENT = os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT")
+AZURE_OPENAI_API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-15-preview")
+AZURE_STORAGE_CONNECTION_STRING = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
+AZURE_SEARCH_ENDPOINT = os.getenv("AZURE_SEARCH_ENDPOINT")
+AZURE_SEARCH_KEY = os.getenv("AZURE_SEARCH_KEY")
+AZURE_BLOB_CONTAINER = os.getenv("AZURE_BLOB_CONTAINER", "interview-data")
+
+# 2. Create aliases required by different parts of the application
+# For RAGInterviewBot (which uses settings.VAR)
+AZURE_OPENAI_KEY = AZURE_OPENAI_API_KEY
+AZURE_OPENAI_MODEL = AZURE_OPENAI_DEPLOYMENT_NAME
+API_VERSION = AZURE_OPENAI_API_VERSION
+
+# For AzureBlobRAGSystem (which uses os.getenv)
+# It needs 'AZURE_OPENAI_KEY' in the environment.
+if AZURE_OPENAI_API_KEY:
+    os.environ["AZURE_OPENAI_KEY"] = AZURE_OPENAI_API_KEY
+if AZURE_OPENAI_DEPLOYMENT_NAME:
+    os.environ["AZURE_OPENAI_MODEL"] = AZURE_OPENAI_DEPLOYMENT_NAME
+if AZURE_OPENAI_API_VERSION:
+    os.environ["API_VERSION"] = AZURE_OPENAI_API_VERSION
 
 
 # Application definition

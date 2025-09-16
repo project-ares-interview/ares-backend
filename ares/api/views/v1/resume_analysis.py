@@ -35,7 +35,7 @@ class ResumeAnalysisAPIView(APIView):
                 "Maintain the original detail and formatting as much as possible, correcting only obvious errors."
             )
             user_prompt_template = (
-                f"Here is the raw resume text:\n\n```\n{{text_chunk}}\n```\n\n"
+                "Here is the raw resume text:\n\n```\n{text_chunk}\n```\n\n"
                 "Please clean and structure this resume text. Preserve all substantive content and remove only irrelevant document artifacts."
             )
         elif context_type == "job description":
@@ -60,14 +60,14 @@ class ResumeAnalysisAPIView(APIView):
                 "Maintain the original formatting of the extracted relevant content as much as possible."
             )
             user_prompt_template = (
-                f"Here is a part of the raw research material text:\n\n```\n{{text_chunk}}\n```\n\n"
+                "Here is a part of the raw research material text:\n\n```\n{text_chunk}\n```\n\n"
                 "Please extract only the core relevant information about the company, industry, or job role from this chunk. "
                 "Ensure to remove all extraneous details and summarize concisely if necessary to fit the context window. "
                 "Avoid repeating information already extracted in previous chunks if possible."
             )
         else: # Fallback for any other context_type
             system_prompt = "You are a helpful assistant. Your task is to refine the provided text by removing irrelevant information and formatting issues."
-            user_prompt_template = f"Please refine the following text:\n\n```\n{{text_chunk}}\n```"
+            user_prompt_template = "Please refine the following text:\n\n```\n{text_chunk}\n```"
 
         # Handle large research material by chunking
         if context_type == "research material" and len(raw_text) > 30000: # Heuristic for large text
@@ -89,22 +89,21 @@ class ResumeAnalysisAPIView(APIView):
                         extracted_parts.append(extracted_chunk_text)
                 except Exception as e:
                     print(f"Error: LLM refinement failed for {context_type} chunk {i+1}: {e}. Skipping chunk.")
-            
+
             refined_text = "\n\n".join(extracted_parts)
             return refined_text if refined_text else raw_text
-        else:
-            # Process as a single chunk
-            messages = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt_template.format(text_chunk=raw_text)}
-            ]
-            try:
-                from ares.api.utils.ai_utils import chat
-                refined_text = chat(messages=messages, temperature=0.2, max_tokens=2000)
-                return refined_text if refined_text else raw_text
-            except Exception as e:
-                print(f"Error: LLM refinement failed for {context_type}: {e}. Returning raw text.")
-                return raw_text
+        # Process as a single chunk
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt_template.format(text_chunk=raw_text)}
+        ]
+        try:
+            from ares.api.utils.ai_utils import chat
+            refined_text = chat(messages=messages, temperature=0.2, max_tokens=2000)
+            return refined_text if refined_text else raw_text
+        except Exception as e:
+            print(f"Error: LLM refinement failed for {context_type}: {e}. Returning raw text.")
+            return raw_text
 
     def post(self, request, *args, **kwargs):
         serializer = ResumeAnalysisInSerializer(data=request.data)
@@ -154,7 +153,7 @@ class ResumeAnalysisAPIView(APIView):
         #       실제로는 서비스 로직 수정이 필요할 수 있습니다.
         structured_ncs_context = analysis_result.get("ncs_context", {})
 
-        analysis_result['input_contexts'] = {
+        analysis_result["input_contexts"] = {
             "raw": {
                 "jd_context": raw_jd_text,
                 "resume_context": raw_resume_text,
