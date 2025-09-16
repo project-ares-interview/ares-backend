@@ -9,11 +9,21 @@ import sys
 import json
 import time
 import logging
+import warnings
 from logging.handlers import RotatingFileHandler
 from typing import Any, Callable, Iterable, Optional
 from datetime import datetime
 from functools import wraps
 import random
+
+# ---------------------------
+# 경고 억제 (Python 3.12 SWIG DeprecationWarning 등)
+# ---------------------------
+warnings.filterwarnings(
+    "ignore",
+    category=DeprecationWarning,
+    module=r"importlib\._bootstrap"
+)
 
 # ---------------------------
 # 경로/시간
@@ -61,7 +71,7 @@ def safe_json_loads(s: str, default: Any = None):
     except Exception:
         return default
 
-# JSONL 헬퍼 (추가)
+# JSONL 헬퍼
 def append_jsonl(path: str, rows: Iterable[dict]) -> None:
     ensure_dir(os.path.dirname(path) or ".")
     with open(path, "a", encoding="utf-8") as f:
@@ -81,16 +91,57 @@ def iter_jsonl(path: str):
                     continue
 
 # ---------------------------
-# 로깅
+# 로깅 (중복 핸들러 방지)
 # ---------------------------
 _loggers_cache: dict[str, logging.Logger] = {}
+_root_configured = False
+
+def _ensure_root_logger_once() -> None:
+    """
+    개발 서버 autoreload 환경에서 핸들러가 중복 붙지 않도록
+    루트 로거를 단 한 번만 구성.
+    - 콘솔/파일 핸들러를 root에만 장착
+    - 개별 로거는 propagate=True로 root로 위임
+    """
+    global _root_configured
+    if _root_configured:
+        return
+
+    root = logging.getLogger()
+    lvl_name = (os.getenv("APP_LOG_LEVEL") or os.getenv("LOG_LEVEL") or "INFO").upper()
+    root.setLevel(getattr(logging, lvl_name, logging.INFO))
+
+    fmt = logging.Formatter("%(asctime)s | %(levelname)s | %(name)s | %(message)s")
+
+    # 콘솔 핸들러(중복 방지)
+    if not any(isinstance(h, logging.StreamHandler) for h in root.handlers):
+        sh = logging.StreamHandler(sys.stdout)
+        sh.setFormatter(fmt)
+        root.addHandler(sh)
+
+    # 파일 핸들러(로테이션, 중복 방지)
+    if not any(isinstance(h, RotatingFileHandler) for h in root.handlers):
+        max_bytes = int(os.getenv("LOG_ROTATE_BYTES", str(10 * 1024 * 1024)))  # 10MB
+        backup_cnt = int(os.getenv("LOG_ROTATE_BACKUPS", "5"))
+        fh = RotatingFileHandler(
+            os.path.join(LOG_ROOT, "app.log"),
+            maxBytes=max_bytes,
+            backupCount=backup_cnt,
+            encoding="utf-8"
+        )
+        fh.setFormatter(fmt)
+        root.addHandler(fh)
+
+    _root_configured = True
 
 def get_logger(name: str = "ares", level: str | None = None) -> logging.Logger:
     """
-    - 캐시/재호출 시에도 level 파라미터가 주어지면 logger 레벨을 갱신
-    - 파일 로그는 로테이션 적용 (기본 10MB, 백업 5개)
-    - 중복 핸들러 방지
+    - 루트 로거를 한 번만 설정(핸들러 중복 방지)
+    - 개별 로거엔 핸들러를 달지 않고, 루트로 전파(propagate=True)
+    - level이 주어지면 해당 로거 레벨만 갱신
     """
+    _ensure_root_logger_once()
+
     lvl_name = (level or os.getenv("LOG_LEVEL", "INFO")).upper()
     lvl = getattr(logging, lvl_name, logging.INFO)
 
@@ -102,28 +153,8 @@ def get_logger(name: str = "ares", level: str | None = None) -> logging.Logger:
 
     logger = logging.getLogger(name)
     logger.setLevel(lvl)
-    logger.propagate = False
-
-    fmt = logging.Formatter("%(asctime)s | %(levelname)s | %(name)s | %(message)s")
-
-    # 파일 핸들러 (로테이션)
-    max_bytes = int(os.getenv("LOG_ROTATE_BYTES", str(10 * 1024 * 1024)))  # 10MB
-    backup_cnt = int(os.getenv("LOG_ROTATE_BACKUPS", "5"))
-    fh = RotatingFileHandler(
-        os.path.join(LOG_ROOT, f"{name}.log"),
-        maxBytes=max_bytes,
-        backupCount=backup_cnt,
-        encoding="utf-8"
-    )
-    fh.setFormatter(fmt)
-
-    # 콘솔 핸들러
-    sh = logging.StreamHandler(sys.stdout)
-    sh.setFormatter(fmt)
-
-    if not logger.handlers:
-        logger.addHandler(fh)
-        logger.addHandler(sh)
+    logger.propagate = True   # root로 전달
+    # 개별 로거에는 핸들러를 달지 않음 (중복 방지)
 
     _loggers_cache[name] = logger
     return logger
