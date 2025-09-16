@@ -4,16 +4,16 @@ import time
 class InterviewMetrics:
     def __init__(self):
         # ================================
-        # 🎯 조정 가능한 임계값들 (수정금지 - 최적화됨)
+        # 🎯 조정 가능한 임계값들 (AI 수정금지 - 최적화됨)
         # ================================
-        self.ear_threshold = 0.12  # EAR 임계값 (낮을수록 민감, 0.15~0.25 권장)
+        self.ear_threshold = 0.20  # EAR 임계값 (높을수록 민감, 0.18~0.25 권장)
         self.ear_consecutive_frames = 1  # 깜빡임 인정을 위한 연속 프레임 수 (1~3 권장)
         self.ear_calibration_frames = 30  # 개인별 보정을 위한 프레임 수 (20~50 권장)
         self.nod_threshold = 15  # 끄덕임 감지 각도 임계값 (15~25도 권장)
-        self.shake_threshold = 25  # 좌우 흔들기 감지 각도 임계값 (20~35도 권장)
-        self.nod_cooldown = 1.0  # 끄덕임 감지 후 대기시간(초) (0.5~2.0 권장)
-        self.shake_cooldown = 1.0  # 흔들기 감지 후 대기시간(초) (0.5~2.0 권장)
-        self.head_min_frames = 8  # 머리 움직임 판단 최소 프레임 수 (5~15 권장)
+        self.shake_threshold = 20  # 좌우 흔들기 감지 각도 임계값 (20~35도 권장)
+        self.nod_cooldown = 0.8  # 끄덕임 감지 후 대기시간(초) (0.5~2.0 권장)
+        self.shake_cooldown = 0.8  # 흔들기 감지 후 대기시간(초) (0.5~2.0 권장)
+        self.head_min_frames = 7  # 머리 움직임 판단 최소 프레임 수 (5~15 권장)
         self.nod_pattern_frames = 4  # 끄덕임 패턴 분석 프레임 수 (3~6 권장)
         self.movement_threshold = (
             0.06  # 어깨 움직임 임계값 (낮을수록 민감, 0.02~0.1 권장)
