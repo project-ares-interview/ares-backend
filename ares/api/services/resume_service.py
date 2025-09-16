@@ -8,6 +8,7 @@ from ares.api.utils.ai_utils import chat
 from ares.api.utils.common_utils import get_logger, chunk_text
 from ares.api.utils.search_utils import search_ncs_hybrid, format_ncs_context
 from ares.api.services.ncs_service import summarize_top_ncs
+from ares.api.utils.ai_utils import chat_complete
 
 _log = get_logger("resume")
 
@@ -48,7 +49,13 @@ CFG = GenConfig()
 
 def _safe_chat(msgs: List[Dict[str,str]], temperature: float, max_tokens: int, default: str="") -> str:
     try:
-        out = chat(messages=msgs, temperature=temperature, max_tokens=max_tokens)
+        out = chat_complete(
+            messages=msgs,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            max_cont=2,               # 필요시 1~3 사이에서 조정
+            require_sentinel=False,   # 필요하면 True로
+        )
         return out or default
     except Exception as e:
         _log.warning(f"LLM 호출 실패: {e}")
