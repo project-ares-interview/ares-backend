@@ -36,7 +36,7 @@ from ares.api.views.v1.social import GoogleLogin, GoogleRegisterView
 from ares.api.views.v1.user import UserDetailView, UserRegisterView
 from dj_rest_auth.views import LoginView, LogoutView
 
-from ares.api.views.v1.analyze import AnalyzeView
+from ares.api.views.v1.analyze import AnalyzeView, PercentileAnalysisView
 
 router = DefaultRouter()
 router.register(r"examples", ExampleViewSet, basename="example")
@@ -233,6 +233,7 @@ urlpatterns = [
     path("user/", UserDetailView.as_view(), name="user_detail"),
     #
     path("analyze/", AnalyzeView.as_view(), name="analyze"),
+    path("analysis/percentiles/", PercentileAnalysisView.as_view(), name="v1-analysis-percentiles"),
     # Custom Views
     path("auth/registration/", UserRegisterView.as_view(), name="rest_register"),
     path("auth/user/", UserDetailView.as_view(), name="user_detail"),
