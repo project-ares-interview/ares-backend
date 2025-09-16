@@ -2,6 +2,7 @@
 import pandas as pd
 import numpy as np
 import traceback
+import librosa # librosa 임포트 추가
 
 # 모듈화된 음향 특성 추출 함수를 임포트합니다.
 from ares.api.utils.audio_utils import extract_prosodic_features_from_buffer
@@ -97,6 +98,25 @@ def analyze_voice_from_buffer(audio_buffer: np.ndarray, sr: int, transcript: str
     오디오 버퍼와 텍스트를 기반으로 음성 점수를 계산합니다.
     """
     try:
+        # 1. 음성 활동 감지 (VAD) - 오디오 버퍼의 RMS 에너지와 텍스트 길이 확인
+        # librosa를 사용하여 RMS 에너지 계산
+        rms_energy = librosa.feature.rms(y=audio_buffer, frame_length=2048, hop_length=512)[0]
+        mean_rms_energy = np.mean(rms_energy)
+
+        # 침묵 임계값 (조정 필요할 수 있음)
+        SILENCE_THRESHOLD_RMS = 0.015 # 이 값은 테스트를 통해 최적화 필요
+
+        if mean_rms_energy < SILENCE_THRESHOLD_RMS or not transcript.strip():
+            print("음성 활동이 감지되지 않았거나 텍스트가 비어있습니다. 점수를 계산하지 않습니다.")
+            return {
+                'confidence_score': 0.0,
+                'fluency_score': 0.0,
+                'stability_score': 0.0,
+                'clarity_score': 0.0,
+                'overall_score': 0.0,
+                'message': 'No speech detected or transcript is empty.'
+            }
+
         acoustic_features = extract_prosodic_features_from_buffer(audio_buffer, sr)
         if not acoustic_features:
             print("음향 특성 추출에 실패했습니다.")
