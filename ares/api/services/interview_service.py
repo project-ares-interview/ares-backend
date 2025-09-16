@@ -1,11 +1,9 @@
 # ares/api/services/interview_service.py
 from __future__ import annotations
 
-from typing import List, Dict, Any, Optional
+from typing import Any
 import time
 import json
-import argparse
-import sys
 
 from ares.api.utils.ai_utils import chat
 from ares.api.utils.common_utils import get_logger
@@ -29,23 +27,23 @@ except ImportError:
 _log = get_logger("interview")
 
 __all__ = [
-    "make_outline",
-    "generate_main_question_ondemand",
-    "generate_followups",
-    "score_answer_starc",
     "AIGenerationError",
+    "generate_followups",
+    "generate_main_question_ondemand",
+    "make_outline",
+    "score_answer_starc",
 ]
 
 
 class AIGenerationError(Exception):
     """AI 모델 응답 생성에 최종적으로 실패했을 때 발생하는 예외"""
-    pass
+
 
 # =========================
 # 내부 유틸
 # =========================
 def _safe_chat(
-    msgs: List[Dict[str, str]],
+    msgs: list[dict[str, str]],
     temperature: float,
     max_tokens: int,
     fallback: str = "",
@@ -61,7 +59,7 @@ def _safe_chat(
             last_err = e
             _log.warning(f"chat() 실패, 재시도 {i}/{retries}: {e}")
             time.sleep(backoff * (2 ** i))
-    
+
     _log.error(f"chat() 최종 실패: {last_err}")
     # 최종 실패 시, fallback 대신 예외 발생
     raise AIGenerationError(f"AI 응답 생성에 최종 실패했습니다: {last_err}")
@@ -69,13 +67,13 @@ def _safe_chat(
 # =========================
 # (선택) NCS 컨텍스트 주입
 # =========================
-def _resolve_ncs_query(ncs_query: Optional[str], meta: Optional[dict]) -> str:
+def _resolve_ncs_query(ncs_query: str | None, meta: dict | None) -> str:
     q = (ncs_query or "").strip()
     if not q and meta:
         q = (meta.get("role") or meta.get("division") or meta.get("company") or "").strip()
     return q
 
-def _build_ncs_ctx(query: Optional[str], top: int, max_len: int) -> str:
+def _build_ncs_ctx(query: str | None, top: int, max_len: int) -> str:
     if not ncs or not query:
         return ""
     try:
@@ -93,17 +91,17 @@ def _build_ncs_ctx(query: Optional[str], top: int, max_len: int) -> str:
 def _inject_company_ctx(prompt: str, meta: dict | None) -> str:
     if not meta:
         return prompt
-    
+
     def _s(x):
         return (x or "").strip()
-    
+
     comp = _s(meta.get("company", ""))
     div  = _s(meta.get("division", ""))
     role = _s(meta.get("role", ""))
     loc  = _s(meta.get("location", ""))
     kpis = ", ".join([_s(x) for x in meta.get("jd_kpis",[]) if _s(x)])[:200]
     skills = ", ".join([_s(x) for x in meta.get("skills",[]) if _s(x)])[:200]
-    
+
     ctx = (
         f"[회사 컨텍스트]\n"
         f"- 회사: {comp or '미상'} | 부서/직무: {div or '-'} / {role or '-'} | 근무지: {loc or '-'}\n"
@@ -124,7 +122,7 @@ def _outline_usr(context: str, n: int, meta: dict | None, ncs_ctx: str) -> str:
     )
     return _inject_company_ctx(p, meta)
 
-def _main_usr(context: str, prev: List[str], difficulty: str, meta: dict | None, ncs_ctx: str) -> str:
+def _main_usr(context: str, prev: list[str], difficulty: str, meta: dict | None, ncs_ctx: str) -> str:
     prev_block = "\n".join([f"- {q}" for q in (prev or [])]) or "- (없음)"
     p = f"[컨텍스트]\n{not_too_long(context, 8000)}\n\n"
     if ncs_ctx:
@@ -156,10 +154,10 @@ def _starc_usr(q: str, a: str, meta: dict | None, ncs_ctx: str) -> str:
 # =========================
 # 1) 섹션 아웃라인
 # =========================
-def make_outline(context: str, n: int = 5, meta: dict | None = None, ncs_query: str | None = None) -> List[str]:
+def make_outline(context: str, n: int = 5, meta: dict | None = None, ncs_query: str | None = None) -> list[str]:
     ncs_query = _resolve_ncs_query(ncs_query, meta)
-    ncs_ctx = _build_ncs_ctx(ncs_query, CFG['NCS_TOP_OUTLINE'], CFG['NCS_CTX_MAX_LEN'])
-    
+    ncs_ctx = _build_ncs_ctx(ncs_query, CFG["NCS_TOP_OUTLINE"], CFG["NCS_CTX_MAX_LEN"])
+
     msgs = [
         {"role": "system", "content": PROMPTS["SYS_OUTLINE"]},
         {"role": "user", "content": _outline_usr(context, n, meta, ncs_ctx)},
@@ -168,8 +166,8 @@ def make_outline(context: str, n: int = 5, meta: dict | None = None, ncs_query: 
     try:
         out = _safe_chat(
             msgs,
-            temperature=CFG['TEMPERATURE_OUTLINE'],
-            max_tokens=CFG['MAX_TOKENS_OUTLINE'],
+            temperature=CFG["TEMPERATURE_OUTLINE"],
+            max_tokens=CFG["MAX_TOKENS_OUTLINE"],
         )
         lines = dedup_preserve_order(normalize_lines(out))
         return lines[:n] if lines else ["문제해결", "협업", "품질", "리스크", "고객집착"][:n]
@@ -181,14 +179,14 @@ def make_outline(context: str, n: int = 5, meta: dict | None = None, ncs_query: 
 # =========================
 def generate_main_question_ondemand(
     context: str,
-    prev_questions: List[str],
+    prev_questions: list[str],
     difficulty: str = "보통",
     meta: dict | None = None,
     ncs_query: str | None = None
 ) -> str:
     ncs_query = _resolve_ncs_query(ncs_query, meta)
-    ncs_ctx = _build_ncs_ctx(ncs_query, CFG['NCS_TOP_MAIN'], CFG['NCS_CTX_MAX_LEN'])
-    
+    ncs_ctx = _build_ncs_ctx(ncs_query, CFG["NCS_TOP_MAIN"], CFG["NCS_CTX_MAX_LEN"])
+
     msgs = [
         {"role": "system", "content": PROMPTS["SYS_MAIN_Q"]},
         {"role": "user", "content": _main_usr(context, prev_questions, difficulty, meta, ncs_ctx)},
@@ -198,8 +196,8 @@ def generate_main_question_ondemand(
     try:
         out = _safe_chat(
             msgs,
-            temperature=CFG['TEMPERATURE_MAIN'],
-            max_tokens=CFG['MAX_TOKENS_MAIN'],
+            temperature=CFG["TEMPERATURE_MAIN"],
+            max_tokens=CFG["MAX_TOKENS_MAIN"],
             fallback=fallback_q
         )
         q = first_sentence(out)
@@ -216,15 +214,15 @@ def generate_followups(
     main_q: str,
     answer: str,
     k: int = 3,
-    main_index: Optional[int] = None,
-    meta: Optional[dict] = None,
+    main_index: int | None = None,
+    meta: dict | None = None,
     ncs_query: str | None = None,
-) -> List[str]:
-    k = min(k, CFG['MAX_FOLLOW_K'])
+) -> list[str]:
+    k = min(k, CFG["MAX_FOLLOW_K"])
     if k <= 0: return []
 
     ncs_query = _resolve_ncs_query(ncs_query, meta)
-    ncs_ctx = _build_ncs_ctx(ncs_query, CFG['NCS_TOP_FOLLOW'], CFG['NCS_CTX_MAX_LEN'])
+    ncs_ctx = _build_ncs_ctx(ncs_query, CFG["NCS_TOP_FOLLOW"], CFG["NCS_CTX_MAX_LEN"])
 
     msgs = [
         {"role": "system", "content": PROMPTS["SYS_FOLLOW"]},
@@ -239,8 +237,8 @@ def generate_followups(
     try:
         out = _safe_chat(
             msgs,
-            temperature=CFG['TEMPERATURE_FOLLOW'],
-            max_tokens=CFG['MAX_TOKENS_FOLLOW'],
+            temperature=CFG["TEMPERATURE_FOLLOW"],
+            max_tokens=CFG["MAX_TOKENS_FOLLOW"],
         )
         lines = dedup_preserve_order(normalize_lines(out))[:k]
         if not lines: lines = fallback_fus[:k]
@@ -259,10 +257,10 @@ def score_answer_starc(
     a: str,
     meta: dict | None = None,
     ncs_query: str | None = None
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     ncs_query = _resolve_ncs_query(ncs_query, meta)
-    ncs_ctx = _build_ncs_ctx(ncs_query, CFG['NCS_TOP_SCORE'], CFG['NCS_CTX_MAX_LEN'])
-    
+    ncs_ctx = _build_ncs_ctx(ncs_query, CFG["NCS_TOP_SCORE"], CFG["NCS_CTX_MAX_LEN"])
+
     msgs = [
         {"role": "system", "content": PROMPTS["SYS_STARC"]},
         {"role": "user", "content": _starc_usr(q, a, meta, ncs_ctx)},
@@ -272,13 +270,13 @@ def score_answer_starc(
     try:
         raw = _safe_chat(
             msgs,
-            temperature=CFG['TEMPERATURE_SCORE'],
-            max_tokens=CFG['MAX_TOKENS_SCORE'],
+            temperature=CFG["TEMPERATURE_SCORE"],
+            max_tokens=CFG["MAX_TOKENS_SCORE"],
         ).strip()
     except AIGenerationError as e:
         raw = f"평가 생성 실패: {e}"
 
-    result: Dict[str, Any] = {
+    result: dict[str, Any] = {
         "scores": {}, "weighted_total": None, "grade": None,
         "comments": {}, "summary": []
     }
