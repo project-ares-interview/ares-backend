@@ -26,7 +26,7 @@ class PercentileService:
         if self._data is not None:
             return
 
-        data_path = os.path.join(settings.BASE_DIR, 'ares', 'data')
+        data_path = os.path.join(settings.BASE_DIR, 'data')
         csv_files = glob.glob(os.path.join(data_path, '*_normalized.csv'))
         
         if not csv_files:
