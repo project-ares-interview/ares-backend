@@ -215,3 +215,65 @@ if __name__ == "__main__":
         logger.info(f"Parsed JSON from malformed string: {parsed}")
         assert parsed.get("key1") == "value1"
         assert parsed.get("key3") is True
+
+
+from typing import Optional
+import re
+
+_END_SENTINEL = "<<END_OF_REPORT>>"
+_CODE_FENCE = "```"
+
+def _fences_balanced(s: str) -> bool:
+    if not s:
+        return True
+    return (s.count(_CODE_FENCE) % 2) == 0
+
+def _looks_incomplete(s: str, require_sentinel: bool = False) -> bool:
+    if not s:
+        return True
+    if require_sentinel and _END_SENTINEL not in s:
+        return True
+    if not _fences_balanced(s):
+        return True
+    # 한글 연결 조사/접속사로 마무리되면 미완으로 간주 (가벼운 휴리스틱)
+    tail = s.strip()[-40:]
+    if re.search(r"(으로|로|고|며|지만|그리고|또한|때문에|위해|하며|인데|이지만|인데요|거든요|이라고)$", tail):
+        return True
+    return False
+
+def chat_complete(
+    messages,
+    *,
+    temperature: float = 0.2,
+    max_tokens: int = 1200,
+    max_cont: int = 2,
+    require_sentinel: bool = False,
+    continue_prompt: Optional[str] = None,
+    model_kwargs: Optional[dict] = None,
+) -> str:
+    """
+    chat()을 감싸서 '중간 끊김'을 자동 보정하는 래퍼.
+    - require_sentinel=True면 결과에 반드시 <<END_OF_REPORT>>가 있어야 완료로 간주.
+    - 코드펜스 균형/휴리스틱 기반 문장 미완도 점검.
+    - 부족하면 동일 대화 맥락으로 이어서 최대 max_cont번 추가 호출.
+    """
+    model_kwargs = model_kwargs or {}
+    out = chat(messages=messages, temperature=temperature, max_tokens=max_tokens, **model_kwargs) or ""
+    acc = out
+
+    cont_msg = continue_prompt or (
+        "Continue EXACTLY from the previous character. "
+        "Do not repeat any previous text. "
+        "Close any open code fences or lists. "
+        f"End with a single line containing {_END_SENTINEL}."
+    )
+
+    tries = 0
+    while tries < max_cont and _looks_incomplete(acc, require_sentinel=require_sentinel):
+        tries += 1
+        # 대화 맥락에 assistant 직전 응답 + user의 'continue' 프롬프트를 추가하는 식
+        follow = messages + [{"role": "assistant", "content": out or ""}, {"role": "user", "content": cont_msg}]
+        out = chat(messages=follow, temperature=temperature, max_tokens=max_tokens, **model_kwargs) or ""
+        acc += out
+
+    return acc

@@ -25,16 +25,15 @@ from ares.api.services.prompt import (
 )
 from ares.api.utils.ai_utils import safe_extract_json
 
+import unicodedata
+
+
 def _escape_special_chars(text: str) -> str:
     """Azure AI Search/Lucene 예약문자 이스케이프"""
     # Lucene 예약 문자: + - && || ! ( ) { } [ ] ^ " ~ * ? : \
     pattern = r'([+\-&|!(){}\[\]^"~*?:\\])'
     return re.sub(pattern, r'\\\1', text or "")
 
-
-
-# [PATCH] final_interview_rag.py 내부에 추가
-import unicodedata
 
 def _natural_num(s: str) -> int:
     try:
@@ -44,13 +43,17 @@ def _natural_num(s: str) -> int:
     except Exception:
         return 10**6
 
+
 def _extract_from_korean_schema(plan_data: Any) -> list[dict]:
     """
     다음과 같은 한글 스키마를 표준 스키마로 변환:
     {
       "면접 계획": {
-        "1단계": { "목표": "...", "질문": [ {"질문": "..."}, {"질문": "..."} ] },
-        "2단계": { ... },
+        "1단계": {
+           "목표": "...",
+           "질문": [ {"질문": "..."}, {"질문": "..."} ]
+           # 또는 "핵심 질문": [...], "문항": [...]
+        },
         ...
       }
     }
@@ -73,19 +76,44 @@ def _extract_from_korean_schema(plan_data: Any) -> list[dict]:
         stage_block = stages_dict.get(stage_key, {})
         if not isinstance(stage_block, dict):
             continue
+
         objective = (stage_block.get("목표") or stage_block.get("목 적") or "").strip() or None
-        qs_raw = stage_block.get("질문") or []
+
+        # 질문 키 후보(우선순위): '질문' / '핵심 질문' / '문항' / 'questions'
+        q_keys = ("질문", "핵심 질문", "문항", "questions")
+        qs_raw = None
+        for k in q_keys:
+            if k in stage_block:
+                qs_raw = stage_block.get(k)
+                break
+        if qs_raw is None:
+            qs_raw = []
+
         qs_list: list[str] = []
         if isinstance(qs_raw, list):
             for item in qs_raw:
                 if isinstance(item, str):
-                    qs_list.append(item.strip())
+                    if item.strip():
+                        qs_list.append(item.strip())
                 elif isinstance(item, dict):
-                    q = item.get("질문") or item.get("question") or item.get("Q")
+                    # dict 항목에서도 다양한 키 시도
+                    q = (
+                        item.get("질문")
+                        or item.get("question")
+                        or item.get("Q")
+                        or item.get("텍스트")
+                        or item.get("text")
+                    )
                     if isinstance(q, str) and q.strip():
                         qs_list.append(q.strip())
         elif isinstance(qs_raw, dict):
-            q = qs_raw.get("질문") or qs_raw.get("question")
+            q = (
+                qs_raw.get("질문")
+                or qs_raw.get("question")
+                or qs_raw.get("Q")
+                or qs_raw.get("텍스트")
+                or qs_raw.get("text")
+            )
             if isinstance(q, str) and q.strip():
                 qs_list.append(q.strip())
 
@@ -116,6 +144,7 @@ def _debug_print_raw_json(label: str, payload: str):
     except Exception:
         pass
 
+
 def _force_json_like(raw: str) -> dict | list | None:
     """
     마크다운/설명문 섞인 응답에서 가장 바깥쪽 JSON 블록을 강제로 추출.
@@ -136,12 +165,12 @@ def _force_json_like(raw: str) -> dict | list | None:
                 continue
     return None
 
-# [PATCH] 기존 _normalize_plan_local 함수 전체를 아래로 교체
+
 def _normalize_plan_local(plan_data: Any) -> list[dict]:
     """
     다양한 변형 스키마를 표준 list[{stage, objective?, questions:[...]}] 로 정규화.
     - 영문: plan / interview_plan / questions / question / items
-    - 국문: 면접 계획 / N단계 / 목표 / 질문[{질문:"..."}]
+    - 국문: 면접 계획 / N단계 / 목표 / 질문[{질문:"..."}] / '핵심 질문' / '문항'
     """
     if not plan_data:
         return []
@@ -328,13 +357,24 @@ class RAGInterviewBot:
                 ncs_info=ncs_info,
             )
 
-            # 1차 시도
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=2000,
-                temperature=0.4,
-            )
+            # 1차 시도: JSON 강제 + 토큰 상향
+            msgs = [
+                {"role": "system", "content": "You must return ONLY a single valid JSON object. No markdown, no code fences, no commentary."},
+                {"role": "user", "content": prompt},
+            ]
+            kwargs = {
+                "model": self.model,
+                "messages": msgs,
+                "temperature": 0.4,
+                "max_tokens": 3200,  # 여유 있게 상향
+            }
+            try:
+                # 지원될 경우 JSON 모드 강제
+                kwargs["response_format"] = {"type": "json_object"}
+            except Exception:
+                pass
+
+            response = self.client.chat.completions.create(**kwargs)
             raw = response.choices[0].message.content or ""
             parsed = safe_extract_json(raw) or _force_json_like(raw) or {}
             normalized = _normalize_plan_local(parsed)

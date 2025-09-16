@@ -90,7 +90,7 @@ def _make_ncs_context(meta: dict[str, Any] | None) -> dict[str, Any]:
         ]
 
         compact = [it for it in compact if it.get("title") or it.get("code") or it.get("desc")]
-        
+
         return {"ncs": compact, "ncs_query": q}
     except Exception as e:
         log.warning(f"[NCS] hybrid search failed ({e})")
@@ -183,7 +183,7 @@ class InterviewStartAPIView(APIView):
             log.info(
                 f"[{rid}] 🧠 {company_name} 맞춤 면접 계획 설계 (난이도:{difficulty}, 면접관:{interviewer_mode})"
             )
-            log.info(f"[{rid}] 🔍 '{index_name}' 인덱스에서 질문 처리 시작")
+            log.info(f"[{rid}] 🔎 [QUERY_RAW] company={company_name}, job_title={job_title}, index={index_name}")
 
             # RAG Bot 준비
             try:

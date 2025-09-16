@@ -11,6 +11,13 @@ from ares.api.serializers.v1.resume_analysis import ResumeAnalysisInSerializer, 
 # Services
 from ares.api.services import ocr_service, resume_service
 
+# Utils (👈 추가)
+from ares.api.utils.ai_utils import chat_complete
+from ares.api.utils.text_utils import ensure_full_text
+
+_END_SENTINEL = "<<END_OF_REPORT>>"
+
+
 class ResumeAnalysisAPIView(APIView):
     parser_classes = [MultiPartParser, JSONParser]
     permission_classes = [permissions.AllowAny]
@@ -18,14 +25,23 @@ class ResumeAnalysisAPIView(APIView):
     def _refine_text_with_llm(self, raw_text: str, context_type: str) -> str:
         """
         LLM을 사용하여 OCR 결과 등 원본 텍스트를 정제합니다.
+        - 자동-이어받기(chat_complete)로 중간 끊김 방지
+        - 종료 시그널 강제(_END_SENTINEL)
+        - ensure_full_text()로 RAW와 병합 보정
         """
+        raw_text = (raw_text or "")
         if not raw_text.strip():
             return ""
 
-        # Define prompts based on context_type
-        system_prompt = ""
-        user_prompt_template = ""
+        # === 프롬프트 규칙(종료 시그널 & 닫힘 보장) ===
+        rule_tail = (
+            "\n\n[엄격 규칙]\n"
+            f"1) 출력 마지막 줄에 {_END_SENTINEL} 를 '단독 줄'로 반드시 출력한다.\n"
+            "2) 마크다운 코드펜스/리스트/표는 모두 닫고 마무리한다.\n"
+            "3) 요약하지 말고, 제공된 내용의 '불필요한 잡음 제거 및 구조화'에 집중한다.\n"
+        )
 
+        # === context_type 별 시스템/유저 프롬프트 ===
         if context_type == "resume":
             system_prompt = (
                 "You are an expert career coach. Your task is to clean and structure raw resume text. "
@@ -33,10 +49,12 @@ class ResumeAnalysisAPIView(APIView):
                 "Remove only true OCR errors, irrelevant document headers/footers (e.g., 'Page 1 of 2'), watermarks, or any other non-content boilerplate. "
                 "Do not summarize or remove any actual experience or skill descriptions. "
                 "Maintain the original detail and formatting as much as possible, correcting only obvious errors."
+                + rule_tail
             )
             user_prompt_template = (
                 "Here is the raw resume text:\n\n```\n{text_chunk}\n```\n\n"
-                "Please clean and structure this resume text. Preserve all substantive content and remove only irrelevant document artifacts."
+                "Please clean and structure this resume text. Preserve all substantive content and remove only irrelevant document artifacts.\n"
+                f"End the output with {_END_SENTINEL} on its own line."
             )
         elif context_type == "job description":
             system_prompt = (
@@ -45,10 +63,12 @@ class ResumeAnalysisAPIView(APIView):
                 "Remove all irrelevant information such as application periods, company boilerplate, recruitment process details, "
                 "contact information, website footers/headers, and any other non-core job description text. "
                 "Maintain the original formatting of the extracted relevant content as much as possible."
+                + rule_tail
             )
             user_prompt_template = (
-                f"Here is the raw {context_type} text:\n\n```\n{{text_chunk}}\n```\n\n"
-                f"Please extract only the core {context_type}. Ensure to remove all extraneous details."
+                "Here is the raw job description text:\n\n```\n{text_chunk}\n```\n\n"
+                "Please extract only the core job description. Ensure to remove all extraneous details.\n"
+                f"End the output with {_END_SENTINEL} on its own line."
             )
         elif context_type == "research material":
             system_prompt = (
@@ -58,51 +78,77 @@ class ResumeAnalysisAPIView(APIView):
                 "Remove all irrelevant content such as advertisements, navigation menus, website footers/headers, disclaimers, "
                 "unrelated articles, or any other non-substantive text. "
                 "Maintain the original formatting of the extracted relevant content as much as possible."
+                + rule_tail
             )
             user_prompt_template = (
                 "Here is a part of the raw research material text:\n\n```\n{text_chunk}\n```\n\n"
                 "Please extract only the core relevant information about the company, industry, or job role from this chunk. "
                 "Ensure to remove all extraneous details and summarize concisely if necessary to fit the context window. "
-                "Avoid repeating information already extracted in previous chunks if possible."
+                "Avoid repeating information already extracted in previous chunks if possible.\n"
+                f"End the output with {_END_SENTINEL} on its own line."
             )
-        else: # Fallback for any other context_type
-            system_prompt = "You are a helpful assistant. Your task is to refine the provided text by removing irrelevant information and formatting issues."
-            user_prompt_template = "Please refine the following text:\n\n```\n{text_chunk}\n```"
+        else:  # Fallback
+            system_prompt = (
+                "You are a helpful assistant. Your task is to refine the provided text by removing irrelevant information and formatting issues."
+                + rule_tail
+            )
+            user_prompt_template = "Please refine the following text:\n\n```\n{text_chunk}\n```\n\n" \
+                                   f"End the output with {_END_SENTINEL} on its own line."
 
-        # Handle large research material by chunking
-        if context_type == "research material" and len(raw_text) > 30000: # Heuristic for large text
+        # === 대용량 리서치 전용 청크링 ===
+        if context_type == "research material" and len(raw_text) > 30000:
             from ares.api.utils.common_utils import chunk_text
-            MAX_CHARS_PER_CHUNK = 30000 # Roughly 7500 tokens for Korean
+            MAX_CHARS_PER_CHUNK = 30000
             CHUNK_OVERLAP = 500
 
             chunks = list(chunk_text(raw_text, MAX_CHARS_PER_CHUNK, CHUNK_OVERLAP))
-            extracted_parts = []
+            parts = []
             for i, chunk in enumerate(chunks):
                 messages = [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt_template.format(text_chunk=chunk)}
                 ]
                 try:
-                    from ares.api.utils.ai_utils import chat
-                    extracted_chunk_text = chat(messages=messages, temperature=0.2, max_tokens=2000)
-                    if extracted_chunk_text:
-                        extracted_parts.append(extracted_chunk_text)
+                    # chat_complete: 자동-이어받기, 종료 시그널 검사
+                    extracted = chat_complete(
+                        messages=messages,
+                        temperature=0.2,
+                        max_tokens=2000,
+                        max_cont=2,
+                        require_sentinel=True,
+                    ) or ""
+                    # 시그널 제거
+                    extracted = extracted.replace(_END_SENTINEL, "").strip()
+                    if extracted:
+                        parts.append(extracted)
                 except Exception as e:
-                    print(f"Error: LLM refinement failed for {context_type} chunk {i+1}: {e}. Skipping chunk.")
+                    print(f"[warn] LLM refinement failed for {context_type} chunk {i+1}: {e}. Skipping chunk.")
 
-            refined_text = "\n\n".join(extracted_parts)
-            return refined_text if refined_text else raw_text
-        # Process as a single chunk
+            refined_joined = "\n\n".join(parts)
+            # 최종: RAW와 병합 보정(끊김/코드펜스 균형)
+            safe_refined = ensure_full_text(refined_joined, raw_text)
+            return safe_refined if safe_refined else raw_text
+
+        # === 단일 청크 처리 ===
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt_template.format(text_chunk=raw_text)}
         ]
         try:
-            from ares.api.utils.ai_utils import chat
-            refined_text = chat(messages=messages, temperature=0.2, max_tokens=2000)
-            return refined_text if refined_text else raw_text
+            refined_text = chat_complete(
+                messages=messages,
+                temperature=0.2,
+                max_tokens=2000,
+                max_cont=2,
+                require_sentinel=True,
+            ) or ""
+            refined_text = refined_text.replace(_END_SENTINEL, "").strip()
+
+            # 최종: RAW와 병합 보정
+            safe_refined = ensure_full_text(refined_text, raw_text)
+            return safe_refined if safe_refined else raw_text
         except Exception as e:
-            print(f"Error: LLM refinement failed for {context_type}: {e}. Returning raw text.")
+            print(f"[warn] LLM refinement failed for {context_type}: {e}. Returning raw text.")
             return raw_text
 
     def post(self, request, *args, **kwargs):
@@ -112,7 +158,7 @@ class ResumeAnalysisAPIView(APIView):
 
         data = serializer.validated_data
 
-        # 1. company 정보 파싱 및 검증
+        # 1) company 정보 파싱 및 검증
         try:
             company_data = json.loads(data.get("company", "{}"))
             company_serializer = CompanyDataSerializer(data=company_data)
@@ -122,7 +168,7 @@ class ResumeAnalysisAPIView(APIView):
         except json.JSONDecodeError:
             return Response({"error": "Company data is not a valid JSON string."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # 2. JD, 이력서, 리서치 자료 텍스트 추출 (파일 또는 텍스트)
+        # 2) JD, 이력서, 리서치 텍스트 추출 (파일 또는 텍스트)
         try:
             raw_jd_text = self._get_text(data, "jd")
             raw_resume_text = self._get_text(data, "resume")
@@ -135,12 +181,12 @@ class ResumeAnalysisAPIView(APIView):
         if not raw_resume_text:
             return Response({"error": "Resume is required (resume_file or resume_text)."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # 3. 텍스트 정제
+        # 3) 텍스트 정제 (끊김 방지 + RAW 병합 보정 포함)
         refined_jd_text = self._refine_text_with_llm(raw_jd_text, "job description")
         refined_resume_text = self._refine_text_with_llm(raw_resume_text, "resume")
         refined_research_text = self._refine_text_with_llm(raw_research_text, "research material")
 
-        # 4. Service 호출하여 분석 수행 (정제된 텍스트 사용)
+        # 4) Service 호출하여 분석 수행 (정제된 텍스트 사용)
         analysis_result = resume_service.analyze_all(
             jd_text=refined_jd_text,
             resume_text=refined_resume_text,
@@ -148,9 +194,7 @@ class ResumeAnalysisAPIView(APIView):
             company_meta=company_meta
         )
 
-        # 5. 다음 면접 단계에서 활용할 수 있도록 입력 컨텍스트를 응답에 포함
-        # NOTE: resume_service.analyze_all이 구조화된 NCS 데이터를 반환한다고 가정합니다.
-        #       실제로는 서비스 로직 수정이 필요할 수 있습니다.
+        # 5) 다음 단계 활용을 위해 입력 컨텍스트 포함
         structured_ncs_context = analysis_result.get("ncs_context", {})
 
         analysis_result["input_contexts"] = {
@@ -171,7 +215,7 @@ class ResumeAnalysisAPIView(APIView):
         return Response(analysis_result, status=status.HTTP_200_OK)
 
     def _get_text(self, data, prefix, required=True):
-        """Helper to get text from either file or text field."""
+        """파일 또는 텍스트 필드에서 본문 추출(OCR 포함)."""
         file = data.get(f"{prefix}_file")
         text = data.get(f"{prefix}_text")
 
