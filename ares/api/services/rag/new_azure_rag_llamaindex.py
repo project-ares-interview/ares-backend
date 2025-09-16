@@ -68,6 +68,10 @@ class AzureBlobRAGSystem:
         except Exception as e:
             raise ConnectionError(f"Azure AI Search VectorStore 설정 실패: {e}")
 
+    def _sanitize_id(self, name: str) -> str:
+        """파일 이름의 특수 문자를 ID로 사용하기 안전하게 변경"""
+        return name.replace('[', '_').replace(']', '_')
+
     def _load_env(self):
         """환경 변수 로드"""
         
@@ -146,9 +150,9 @@ class AzureBlobRAGSystem:
                 last_modified_utc = blob_client.get_blob_properties().last_modified.replace(tzinfo=timezone.utc)
 
                 for doc in loaded_docs:
-                    doc.id_ = blob_name 
+                    doc.id_ = self._sanitize_id(blob_name) 
                     doc.metadata.update({
-                        'file_name': blob_name,
+                        'file_name': self._sanitize_id(blob_name),
                         'container': self.container_name,
                         'source': 'azure_blob',
                         'last_modified': last_modified_utc.isoformat()
@@ -211,7 +215,7 @@ class AzureBlobRAGSystem:
         # 4. 변경 사항 적용
         # (4-1) 삭제
         if files_to_delete:
-            print(f"\n ditemukan {len(files_to_delete)}개의 삭제할 파일을 발견했습니다.")
+            print(f"\n {len(files_to_delete)}개의 삭제할 파일을 발견했습니다.")
             for fname in files_to_delete:
                 self.delete_doc(fname)
         

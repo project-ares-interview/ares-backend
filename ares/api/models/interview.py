@@ -29,12 +29,28 @@ class InterviewSession(models.Model):
     resume_context = models.TextField(blank=True, default="")
     ncs_query = models.TextField(blank=True, default="")
 
-    # 🔹 신규: 세션 컨텍스트/NCS 캐시 + 언어/난이도
+    # 🔹 신규: 세션 컨텍스트/NCS 캐시 + 언어/난이도/모드
     context = models.JSONField(default=dict, blank=True)       # {"ncs":[...], "ncs_query":"..."}
     rag_context = models.JSONField(default=dict, blank=True)   # 🔹 RAG 모드 컨텍스트
     language = models.CharField(max_length=8, default="ko", db_index=True)        # "ko" | "en"
     difficulty = models.CharField(max_length=16, default="normal", db_index=True)  # "easy"|"normal"|"hard"
 
+    # ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼
+    # 수정된 부분: interviewer_mode 필드 추가
+    # ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼
+    class InterviewerMode(models.TextChoices):
+        TEAM_LEAD = 'team_lead', 'Team Lead'
+        EXECUTIVE = 'executive', 'Executive'
+
+    interviewer_mode = models.CharField(
+        max_length=20,
+        choices=InterviewerMode.choices,
+        default=InterviewerMode.TEAM_LEAD,
+        db_index=True,  # 🔹 면접관 모드별 통계/분석을 위해 인덱스 추가
+        verbose_name="면접관 모드"
+    )
+    # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+    
     # 상태
     status = models.CharField(
         max_length=16,

@@ -3,11 +3,30 @@ import os
 import time
 import json
 import re
+import logging
 from typing import Any, Dict, List, Optional, Sequence, Union
 
 from openai import AzureOpenAI, RateLimitError, APIConnectionError
 
 from ares.api.config import AI_CONFIG
+
+# ========== 로거 설정 (수정 완료) ==========
+# 1. 우리 앱의 기본 로그 레벨을 INFO로 설정합니다.
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+
+# 2. 외부 라이브러리의 로그 레벨을 WARNING으로 높여서 상세 정보 로그를 숨깁니다.
+logging.getLogger("azure.core.pipeline.policies.http_logging_policy").setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("llama_index.vector_stores.azureaisearch.base").setLevel(logging.WARNING)
+# azure 관련 모든 라이브러리를 한 번에 제어하려면 아래와 같이 설정할 수도 있습니다.
+# logging.getLogger("azure").setLevel(logging.WARNING)
+
+# 3. 우리 앱의 로거는 그대로 INFO 레벨을 사용하도록 가져옵니다.
+logger = logging.getLogger(__name__)
+
 
 # ========== 환경변수 ==========
 AZURE_OAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT", "").strip()
@@ -44,7 +63,9 @@ def _retry(func, *, tries: int = 3, delay: float = 1.0, backoff: float = 2.0):
             except (RateLimitError, APIConnectionError) as e:
                 _tries -= 1
                 if _tries <= 0:
+                    logger.error(f"API 호출 최종 실패 후 예외 발생: {e}")
                     raise e
+                logger.warning(f"API 호출 실패 ({type(e).__name__}). {_delay:.1f}초 후 재시도... ({_tries}회 남음)")
                 time.sleep(_delay)
                 _delay *= backoff
     return wrapper
@@ -53,47 +74,56 @@ def _retry(func, *, tries: int = 3, delay: float = 1.0, backoff: float = 2.0):
 # ========== 공개 API ==========
 def safe_extract_json(text: str, default: Any = None) -> Any:
     """
-    Extracts and safely parses a JSON object from a string, even if it's malformed.
+    Extract and safely parse a JSON object from a possibly malformed string.
 
     - Extracts content from markdown code fences (```json ... ```).
-    - Sanitizes the string by fixing common syntax errors (quotes, commas, etc.).
-    - Returns a default value if parsing fails.
+    - Falls back to the largest {...} object.
+    - Sanitizes common issues (smart quotes, missing commas, trailing commas, True/False/None).
+    - Returns `default` (or {}) if parsing fails.
     """
-    if not isinstance(text, str):
+    if not isinstance(text, str) or not text.strip():
         return default if default is not None else {}
 
-    # 1. Extract content from ```json ... ```
-    match = re.search(r'```json\s*(\{.*\})\s*```', text, re.DOTALL)
-    if match:
-        text = match.group(1)
-    else:
-        # 2. Fallback to the largest JSON-like object
-        match = re.search(r"\{.*\}", text, re.DOTALL)
-        if match:
-            text = match.group(0)
+    original_text = text
 
-    # 3. Sanitize the extracted string
-    # Replace smart quotes and other problematic characters
+    # 1) ```json ... ``` 블록 우선 추출 (non-greedy)
+    fence = re.search(r'```json\s*(\{.*?\})\s*```', text, re.DOTALL | re.IGNORECASE)
+    if fence:
+        text = fence.group(1)
+    else:
+        # 2) 가장 큰 JSON 오브젝트 시도 (greedy)
+        obj = re.search(r"\{.*\}", text, re.DOTALL)
+        if obj:
+            text = obj.group(0)
+
+    # 3) 정규화/치유
+    # 스마트 따옴표 등 교정
     text = (
         text.replace("“", '"').replace("”", '"')
-        .replace("‘", "'").replace("’", "'")
+            .replace("‘", "'").replace("’", "'")
     )
-    # Add missing commas between } and "
+
+    # 줄 바꿈 사이에서 누락된 콤마 보정: } 또는 ] 뒤에 바로 "가 오면 콤마 삽입
     text = re.sub(r'([}\]0-9eE"\\])\s*[\r\n]+\s*(")', r"\1,\n\2", text)
-    # Add missing commas between } and " with only whitespace
-    text = re.sub(r'([}\])\s*(")', r'\1,\2', text)
-    # Remove trailing commas
-    text = re.sub(r",\s*([}\]])", r"\1", text)
-    # Convert Python bool/None to JSON bool/null
+
+    # 공백만 있는 경우도 보정
+    text = re.sub(r'([}\]])\s*(")', r'\1,\2', text)
+
+    # 닫는 괄호 앞 트레일링 콤마 제거
+    text = re.sub(r',\s*(?=[}\]])', '', text)
+
+    # Python literal -> JSON literal
     text = re.sub(r"\bTrue\b", "true", text)
     text = re.sub(r"\bFalse\b", "false", text)
     text = re.sub(r"\bNone\b", "null", text)
+
     text = text.strip()
 
-    # 4. Parse the sanitized string
+    # 4) 파싱
     try:
         return json.loads(text)
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as e:
+        logger.warning(f"JSON 파싱 실패. 원본 일부: {original_text[:200]!r} / 정규화본 일부: {text[:200]!r}. 에러: {e}")
         return default if default is not None else {}
 
 def chat(
@@ -140,7 +170,6 @@ def embed(text_or_texts: Union[str, List[str]], *, max_len: int = 8000) -> Union
 
     is_single = isinstance(text_or_texts, str)
     inputs: List[str] = [text_or_texts] if is_single else list(text_or_texts)
-    # 비어있는 텍스트에 대한 기본값 설정 및 길이 제한
     processed_inputs = [(t or "NCS")[:max_len] for t in inputs]
 
     @_retry
@@ -158,16 +187,31 @@ __all__ = ["is_ready", "chat", "embed", "safe_extract_json"]
 
 # ========== 단독 테스트 ==========
 if __name__ == "__main__":
-    print("[ai_utils] ready:", is_ready())
+    logger.info(f"[ai_utils] ready: {is_ready()}")
     if is_ready():
         out = chat([
             {"role": "system", "content": "한 줄로 답해."},
             {"role": "user", "content": "반가워?"},
         ])
-        print("chat(messages):", out)
+        logger.info(f"chat(messages): {out}")
 
         vec = embed("펌프 정비 절차")
-        print("embed dims:", len(vec))
+        logger.info(f"embed dims: {len(vec)}")
 
         vecs = embed(["펌프 정비", "밸브 수리"])
-        print("embed_batch dims:", len(vecs[0]))
+        logger.info(f"embed_batch dims: {len(vecs[0])}")
+
+        malformed_json_string = """
+        ```json
+        {
+            "key1": "value1",
+            "key2": "value2"
+            "key3": true,
+            "key4": [1, 2, 3,],
+        }
+        ```
+        """
+        parsed = safe_extract_json(malformed_json_string)
+        logger.info(f"Parsed JSON from malformed string: {parsed}")
+        assert parsed.get("key1") == "value1"
+        assert parsed.get("key3") is True
