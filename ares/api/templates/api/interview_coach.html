@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Ares AI Interview Coach - 최종 분석</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
     <style>
         :root {
             --bg-main: #f4f7f9;
@@ -57,6 +59,8 @@
         }
         .btn-primary { background-color: var(--primary-color); color: white; }
         .btn-primary:hover { background-color: #1a365d; }
+        .btn-secondary { background-color: var(--secondary-color); color: white; }
+        .btn-secondary:hover { background-color: #2f855a; }
         .btn-danger { background-color: #e53e3e; color: white; }
         .btn-danger:hover { background-color: #c53030; }
         .btn:disabled { background-color: #cbd5e0; cursor: not-allowed; }
@@ -89,7 +93,7 @@
         .status-pending { background-color: #fefcbf; color: #92400e; }
         .status-success { background-color: #d1fae5; color: #065f46; }
 
-        .results-container { display: none; }
+        .results-container, .percentile-analysis-panel { display: none; }
         table {
             width: 100%;
             border-collapse: collapse;
@@ -127,18 +131,35 @@
         .feedback-value {
             font-weight: 600;
         }
-        .volume-bar-container {
-            width: 100%;
-            height: 20px;
-            background-color: var(--border-color);
-            border-radius: 4px;
-            overflow: hidden;
+        .filter-section {
+            margin-bottom: 20px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid var(--border-color);
         }
-        .volume-bar {
-            width: 0%;
-            height: 100%;
-            background-color: var(--secondary-color);
-            transition: width 0.1s ease-in-out;
+        .filter-group {
+            margin-bottom: 10px;
+        }
+        .filter-group legend {
+            font-weight: 600;
+            margin-bottom: 8px;
+            font-size: 1.1rem;
+        }
+        .filter-group label {
+            margin-right: 15px;
+            font-size: 1rem;
+            cursor: pointer;
+        }
+        .percentile-charts-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 20px;
+        }
+        .chart-container {
+            position: relative;
+            height: 300px;
+            padding: 10px;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
         }
     </style>
 </head>
@@ -185,6 +206,24 @@
             <h2>최종 분석 결과</h2>
             <div id="results-tables"></div>
         </div>
+
+        <div id="percentileAnalysisPanel" class="panel percentile-analysis-panel">
+            <h2>점수 분포 분석</h2>
+            <div class="filter-section">
+                <div class="filter-group" id="genderFilter">
+                    <legend>성별</legend>
+                </div>
+                <div class="filter-group" id="ageRangeFilter">
+                    <legend>연령대</legend>
+                </div>
+                <div class="filter-group" id="occupationFilter">
+                    <legend>직군</legend>
+                </div>
+                <button id="updateAnalysisBtn" class="btn btn-secondary">분석하기</button>
+            </div>
+            <div id="percentileCharts" class="percentile-charts-grid"></div>
+        </div>
+
         <div class="panel">
             <h2>실시간 분석 로그</h2>
             <pre id="realtime-log" style="background-color: #2d3748; color: #f7fafc; padding: 16px; border-radius: 8px; max-height: 300px; overflow-y: auto; white-space: pre-wrap; word-wrap: break-word;"></pre>
@@ -201,6 +240,9 @@
             resultsContainer: document.getElementById('resultsContainer'),
             resultsTables: document.getElementById('results-tables'),
             logContainer: document.getElementById('realtime-log'),
+            percentileAnalysisPanel: document.getElementById('percentileAnalysisPanel'),
+            percentileCharts: document.getElementById('percentileCharts'),
+            updateAnalysisBtn: document.getElementById('updateAnalysisBtn'),
             rt: {
                 posture: document.getElementById('rt-posture'),
                 head: document.getElementById('rt-head'),
@@ -215,6 +257,14 @@
 
         let fullTranscript = '';
         let interimTranscript = '';
+        let analysisResults = {};
+        let percentileCharts = {};
+
+        const filterOptions = {
+            gender: ["FEMALE", "MALE"],
+            ageRange: ["-34", "35-44", "45-54", "55-"],
+            occupation: ["ARD", "BM", "ICT", "MM", "PS", "RND", "SM"]
+        };
 
         function generateUUID() {
             return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
@@ -225,6 +275,7 @@
         window.addEventListener('load', async () => {
             await setupMedia();
             setupWebSockets();
+            setupFilters();
         });
 
         function setupWebSockets() {
@@ -264,50 +315,30 @@
         }
 
         function setupAudioRecording(stream) {
-            audioContext = new (window.AudioContext || window.webkitAudioContext)(); // 샘플 레이트 지정 제거
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
             audioSource = audioContext.createMediaStreamSource(stream);
-            
-            // bufferSize: 4096, inputChannels: 1, outputChannels: 1
             audioProcessor = audioContext.createScriptProcessor(4096, 1, 1);
-
             const targetSampleRate = 16000;
 
             audioProcessor.onaudioprocess = (e) => {
                 if (!audioSocket || audioSocket.readyState !== WebSocket.OPEN) return;
-
                 const inputData = e.inputBuffer.getChannelData(0);
                 const sourceSampleRate = audioContext.sampleRate;
-
-                // 16000Hz로 리샘플링
                 const resampledData = resampleBuffer(inputData, sourceSampleRate, targetSampleRate);
-
-                // Float32Array를 Int16Array (raw PCM)로 변환
                 const int16Data = new Int16Array(resampledData.length);
                 for (let i = 0; i < resampledData.length; i++) {
                     int16Data[i] = Math.max(-1, Math.min(1, resampledData[i])) * 32767;
                 }
-                
-                // 원본 바이너리 PCM 데이터를 audioSocket으로 전송
                 audioSocket.send(int16Data.buffer);
             };
         }
 
-        /**
-         * 오디오 버퍼를 리샘플링하는 함수 (간단한 선형 보간 방식)
-         * @param {Float32Array} inputBuffer - 원본 오디오 데이터
-         * @param {number} sourceSampleRate - 원본 샘플 레이트
-         * @param {number} targetSampleRate - 목표 샘플 레이트
-         * @returns {Float32Array} - 리샘플링된 오디오 데이터
-         */
         function resampleBuffer(inputBuffer, sourceSampleRate, targetSampleRate) {
-            if (sourceSampleRate === targetSampleRate) {
-                return inputBuffer;
-            }
+            if (sourceSampleRate === targetSampleRate) return inputBuffer;
             const sampleRateRatio = sourceSampleRate / targetSampleRate;
             const newLength = Math.round(inputBuffer.length / sampleRateRatio);
             const result = new Float32Array(newLength);
-            let offsetResult = 0;
-            let offsetBuffer = 0;
+            let offsetResult = 0, offsetBuffer = 0;
             while (offsetResult < result.length) {
                 const nextOffsetBuffer = Math.round((offsetResult + 1) * sampleRateRatio);
                 let accum = 0, count = 0;
@@ -333,39 +364,33 @@
             elems.finishBtn.disabled = false;
             elems.resultsContainer.style.display = 'none';
             elems.analysisStatus.style.display = 'none';
+            elems.percentileAnalysisPanel.style.display = 'none';
 
             fullTranscript = '';
             interimTranscript = '';
+            analysisResults = {};
             elems.transcription.textContent = '답변을 말씀해주세요...';
-            elems.logContainer.textContent = ''; // 로그 초기화
+            elems.logContainer.textContent = '';
             resetRealtimeFeedback();
             
-            // 오디오 처리 시작
-            if (audioContext.state === 'suspended') {
-                audioContext.resume();
-            }
+            if (audioContext.state === 'suspended') audioContext.resume();
             audioSource.connect(audioProcessor);
-            audioProcessor.connect(audioContext.destination); // 이 라인이 있어야 onaudioprocess가 호출됨
+            audioProcessor.connect(audioContext.destination);
 
-            startSendingVideoFrames(); // 비디오 프레임 전송 시작
+            startSendingVideoFrames();
             sendJsonMessage(resultsSocket, 'toggle_analysis', { analyze: true });
         });
 
         elems.finishBtn.addEventListener('click', () => {
             elems.finishBtn.disabled = true;
-            stopSendingVideoFrames(); // 비디오 프레임 전송 중지
-
-            // 오디오 처리 중지
+            stopSendingVideoFrames();
             if(audioSource) audioSource.disconnect();
             if(audioProcessor) audioProcessor.disconnect();
-            
-            // 미디어 스트림 중지 (카메라/마이크 끄기)
             if (localStream) {
                 localStream.getTracks().forEach(track => track.stop());
                 localStream = null;
                 elems.video.srcObject = null;
             }
-            
             sendJsonMessage(resultsSocket, 'finish_analysis_signal', {});
         });
 
@@ -374,7 +399,6 @@
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
             const context = canvas.getContext('2d');
-
             videoFrameSender = setInterval(() => {
                 if (videoSocket && videoSocket.readyState === WebSocket.OPEN) {
                     context.drawImage(video, 0, 0, canvas.width, canvas.height);
@@ -382,7 +406,7 @@
                         if (blob) videoSocket.send(blob);
                     }, 'image/jpeg', 0.7);
                 }
-            }, 500); // 500ms 간격 (초당 2프레임)
+            }, 500);
         }
 
         function stopSendingVideoFrames() {
@@ -395,13 +419,11 @@
         function handleSocketEvent(eventName, data) {
             switch (eventName) {
                 case 'speech_update':
-                    if (!data.text) return; // 비어있는 텍스트는 무시
-
+                    if (!data.text) return;
                     if (data.type === 'recognized') {
-                        // 최종 인식된 텍스트는 전체 스크립트에 추가
                         fullTranscript += data.text + ' ';
-                        interimTranscript = ''; // 중간 텍스트 초기화
-                    } else { // 'recognizing' 등 중간 결과
+                        interimTranscript = '';
+                    } else {
                         interimTranscript = data.text;
                     }
                     elems.transcription.textContent = fullTranscript + interimTranscript;
@@ -430,16 +452,18 @@
             }
         }
 
-        let results = {};
         function updateResults(type, data) {
-            results[type] = data;
-            if (results['voice_scores_update'] && results['video_analysis_update']) {
+            analysisResults[type] = data;
+            if (analysisResults['voice_scores_update'] && analysisResults['video_analysis_update']) {
                 elems.analysisStatus.className = 'panel status-success';
                 elems.analysisStatus.textContent = '분석이 완료되었습니다!';
-                renderResultsTable(results['voice_scores_update'], results['video_analysis_update']);
+                renderResultsTable(analysisResults['voice_scores_update'], analysisResults['video_analysis_update']);
                 elems.resultsContainer.style.display = 'block';
+                
+                elems.percentileAnalysisPanel.style.display = 'block';
+                fetchAndDrawPercentiles(); // Initial analysis with no filters
+
                 elems.startBtn.disabled = false;
-                results = {}; // Reset for next round
             }
         }
 
@@ -487,6 +511,172 @@
                 </table>` : '<p>영상 분석 데이터를 불러오지 못했습니다.</p>';
 
             elems.resultsTables.innerHTML = voiceScores + videoScores;
+        }
+
+        // --- Percentile Analysis Functions ---
+
+        function setupFilters() {
+            Object.keys(filterOptions).forEach(key => {
+                const container = document.getElementById(`${key}Filter`);
+                filterOptions[key].forEach(value => {
+                    const label = document.createElement('label');
+                    const checkbox = document.createElement('input');
+                    checkbox.type = 'checkbox';
+                    checkbox.name = key;
+                    checkbox.value = value;
+                    label.appendChild(checkbox);
+                    label.appendChild(document.createTextNode(` ${value}`));
+                    container.appendChild(label);
+                });
+            });
+            elems.updateAnalysisBtn.addEventListener('click', fetchAndDrawPercentiles);
+        }
+
+        function getSelectedFilters() {
+            const filters = {};
+            document.querySelectorAll('.filter-section input[type="checkbox"]:checked').forEach(checkbox => {
+                if (!filters[checkbox.name]) {
+                    filters[checkbox.name] = [];
+                }
+                filters[checkbox.name].push(checkbox.value);
+            });
+            return filters;
+        }
+
+        async function fetchAndDrawPercentiles() {
+            const voiceScores = analysisResults['voice_scores_update'];
+            if (!voiceScores) return;
+
+            elems.updateAnalysisBtn.disabled = true;
+            elems.updateAnalysisBtn.textContent = '분석 중...';
+
+            const filters = getSelectedFilters();
+            const params = new URLSearchParams();
+
+            Object.keys(voiceScores).forEach(key => {
+                if (key.endsWith('_score')) {
+                    params.append(key, voiceScores[key]);
+                }
+            });
+
+            Object.keys(filters).forEach(key => {
+                filters[key].forEach(value => {
+                    params.append(key, value);
+                });
+            });
+            
+            try {
+                const response = await fetch(`/api/v1/analysis/percentiles/?${params.toString()}`);
+                if (!response.ok) throw new Error(`API Error: ${response.statusText}`);
+                const analysisData = await response.json();
+                drawDistributionCharts(analysisData);
+            } catch (error) {
+                console.error("Failed to fetch or draw analysis:", error);
+                elems.percentileCharts.innerHTML = '<p>분포 데이터를 불러오는 데 실패했습니다.</p>';
+            } finally {
+                elems.updateAnalysisBtn.disabled = false;
+                elems.updateAnalysisBtn.textContent = '분석하기';
+            }
+        }
+
+        function pdf(x, mean, std) {
+            if (std === 0) return x === mean ? 1 : 0;
+            const variance = std * std;
+            const factor = 1 / Math.sqrt(2 * Math.PI * variance);
+            return factor * Math.exp(-0.5 * ((x - mean) * (x - mean)) / variance);
+        }
+
+        function drawDistributionCharts(analysisData) {
+            const scoreNames = {
+                confidence_score: '자신감',
+                fluency_score: '유창성',
+                stability_score: '안정성',
+                clarity_score: '명료성',
+                overall_score: '종합'
+            };
+
+            elems.percentileCharts.innerHTML = '';
+
+            Object.keys(scoreNames).forEach(scoreKey => {
+                const data = analysisData[scoreKey];
+                if (!data) return;
+
+                const { mean, std, user_score, percentile } = data;
+
+                const chartContainer = document.createElement('div');
+                chartContainer.className = 'chart-container';
+                const canvas = document.createElement('canvas');
+                chartContainer.appendChild(canvas);
+                elems.percentileCharts.appendChild(chartContainer);
+
+                if (percentileCharts[scoreKey]) {
+                    percentileCharts[scoreKey].destroy();
+                }
+
+                const labels = Array.from({ length: 101 }, (_, i) => i);
+                const curveData = labels.map(x => pdf(x, mean, std));
+
+                percentileCharts[scoreKey] = new Chart(canvas, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: '점수 분포',
+                            data: curveData,
+                            borderColor: 'rgba(44, 82, 130, 0.5)',
+                            backgroundColor: 'rgba(44, 82, 130, 0.2)',
+                            fill: true,
+                            pointRadius: 0,
+                            borderWidth: 2
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            y: {
+                                display: false,
+                                beginAtZero: true
+                            },
+                            x: {
+                                type: 'linear',
+                                min: 0,
+                                max: 100,
+                                title: {
+                                    display: true,
+                                    text: '점수'
+                                }
+                            }
+                        },
+                        plugins: {
+                            legend: { display: false },
+                            title: {
+                                display: true,
+                                text: `${scoreNames[scoreKey]} (상위 ${percentile}%)`,
+                                font: { size: 16 }
+                            },
+                            tooltip: { enabled: false },
+                            annotation: {
+                                annotations: {
+                                    userScoreLine: {
+                                        type: 'line',
+                                        scaleID: 'x',
+                                        value: user_score,
+                                        borderColor: '#e53e3e',
+                                        borderWidth: 2,
+                                        label: {
+                                            content: `내 점수: ${user_score.toFixed(1)}`,
+                                            display: true,
+                                            position: 'start',
+                                            backgroundColor: '#e53e3e'
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            });
         }
 
     </script>

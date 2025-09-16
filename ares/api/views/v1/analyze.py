@@ -10,6 +10,67 @@ import random
 from pathlib import Path
 from django.http import JsonResponse
 
+# New import for the percentile service
+from ares.api.services.percentile_service import percentile_service
+
+class PercentileAnalysisView(APIView):
+    """
+    API view to calculate and return score percentiles based on filters.
+    """
+    authentication_classes = []
+    permission_classes = []
+
+    def get(self, request):
+        """
+        Calculates percentiles for given scores based on query parameters.
+        
+        Query Params:
+        - Scores (required): e.g., confidence_score=85, fluency_score=92
+        - Filters (optional): e.g., gender=MALE, ageRange=-34, occupation=ICT
+          (Filters can have multiple values, e.g., &occupation=ICT&occupation=RND)
+        """
+        try:
+            # 1. Parse scores from query parameters
+            score_columns = ['confidence_score', 'fluency_score', 'stability_score', 'clarity_score', 'overall_score']
+            user_scores = {}
+            for score in score_columns:
+                value = request.query_params.get(score)
+                if value is not None:
+                    try:
+                        user_scores[score] = float(value)
+                    except (ValueError, TypeError):
+                        return Response(
+                            {'error': f'Invalid value for score: {score}. Must be a number.'},
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
+            
+            if not user_scores:
+                return Response(
+                    {'error': 'At least one score parameter is required.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # 2. Parse filters from query parameters
+            filter_keys = ['gender', 'ageRange', 'occupation']
+            filters = {}
+            for key in filter_keys:
+                values = request.query_params.getlist(key)
+                if values:
+                    filters[key] = values
+
+            # 3. Calculate percentiles using the service
+            percentiles = percentile_service.get_percentiles(user_scores, filters)
+
+            return Response(percentiles, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            # In a real scenario, you might want to log this error.
+            return Response(
+                {'error': f'An unexpected error occurred during percentile analysis: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
 class ScoreAnalyzer:
     def __init__(self):
         self.df = None
