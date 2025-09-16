@@ -31,6 +31,18 @@ DEBUG = True
 CLIENT_HOST = os.getenv("CLIENT_HOST", "127.0.0.1")
 CLIENT_PORT = os.getenv("CLIENT_PORT", "8081")
 
+# Azure OpenAI Settings
+AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT")
+AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
+AZURE_OPENAI_DEPLOYMENT_NAME = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME")
+AZURE_OPENAI_API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION")
+
+# Azure Search Settings
+AZURE_SEARCH_ENDPOINT = os.getenv("AZURE_SEARCH_ENDPOINT")
+AZURE_SEARCH_KEY = os.getenv("AZURE_SEARCH_KEY")
+
+
+
 ALLOWED_HOSTS: list[str] = []
 
 # Map RAG-specific environment variables

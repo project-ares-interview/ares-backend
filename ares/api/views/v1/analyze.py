@@ -12,6 +12,38 @@ from django.http import JsonResponse
 
 # New import for the percentile service
 from ares.api.services.percentile_service import percentile_service
+# New import for the AI advisor service
+from ares.api.services.openai_advisor import advisor as ai_advisor
+
+
+class GenerateAIAdviceView(APIView):
+    """
+    API view to generate AI-based interview advice.
+    """
+    authentication_classes = []
+    permission_classes = []
+
+    def post(self, request):
+        """
+        Generates advice based on the provided analysis data.
+        """
+        analysis_data = request.data
+        if not analysis_data:
+            return Response(
+                {'error': 'Analysis data was not provided.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            # Use the imported advisor instance to generate advice
+            advice_result = ai_advisor.generate_advice(analysis_data)
+            return Response(advice_result, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response(
+                {'error': f'An unexpected error occurred while generating advice: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
 
 class PercentileAnalysisView(APIView):
     """

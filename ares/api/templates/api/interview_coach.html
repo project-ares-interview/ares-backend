@@ -12,6 +12,7 @@
             --bg-panel: #ffffff;
             --primary-color: #2c5282;
             --secondary-color: #38a169;
+            --ai-color: #6b46c1;
             --text-primary: #2d3748;
             --text-secondary: #718096;
             --border-color: #e2e8f0;
@@ -61,6 +62,8 @@
         .btn-primary:hover { background-color: #1a365d; }
         .btn-secondary { background-color: var(--secondary-color); color: white; }
         .btn-secondary:hover { background-color: #2f855a; }
+        .btn-ai { background-color: var(--ai-color); color: white; }
+        .btn-ai:hover { background-color: #553c9a; }
         .btn-danger { background-color: #e53e3e; color: white; }
         .btn-danger:hover { background-color: #c53030; }
         .btn:disabled { background-color: #cbd5e0; cursor: not-allowed; }
@@ -93,7 +96,7 @@
         .status-pending { background-color: #fefcbf; color: #92400e; }
         .status-success { background-color: #d1fae5; color: #065f46; }
 
-        .results-container, .percentile-analysis-panel { display: none; }
+        .results-container, .percentile-analysis-panel, .ai-advice-panel { display: none; }
         table {
             width: 100%;
             border-collapse: collapse;
@@ -122,33 +125,19 @@
             padding: 8px 0;
             border-bottom: 1px solid var(--border-color);
         }
-        .feedback-item:last-child {
-            border-bottom: none;
-        }
-        .feedback-label {
-            color: var(--text-secondary);
-        }
-        .feedback-value {
-            font-weight: 600;
-        }
+        .feedback-item:last-child { border-bottom: none; }
+        .feedback-label { color: var(--text-secondary); }
+        .feedback-value { font-weight: 600; }
+        
         .filter-section {
             margin-bottom: 20px;
             padding-bottom: 20px;
             border-bottom: 1px solid var(--border-color);
         }
-        .filter-group {
-            margin-bottom: 10px;
-        }
-        .filter-group legend {
-            font-weight: 600;
-            margin-bottom: 8px;
-            font-size: 1.1rem;
-        }
-        .filter-group label {
-            margin-right: 15px;
-            font-size: 1rem;
-            cursor: pointer;
-        }
+        .filter-group { margin-bottom: 10px; }
+        .filter-group legend { font-weight: 600; margin-bottom: 8px; font-size: 1.1rem; }
+        .filter-group label { margin-right: 15px; font-size: 1rem; cursor: pointer; }
+        
         .percentile-charts-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
@@ -160,6 +149,14 @@
             padding: 10px;
             border: 1px solid var(--border-color);
             border-radius: 8px;
+        }
+        #aiAdviceContent {
+            background: #f7fafc;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 20px;
+            white-space: pre-wrap;
+            line-height: 1.7;
         }
     </style>
 </head>
@@ -202,23 +199,24 @@
         </div>
 
         <div id="analysis-status" class="panel" style="display: none;"></div>
+        
         <div id="resultsContainer" class="panel results-container">
             <h2>최종 분석 결과</h2>
             <div id="results-tables"></div>
+            <button id="getAdviceBtn" class="btn btn-ai" style="margin-top: 20px;" disabled>🤖 AI 조언 보기</button>
+        </div>
+
+        <div id="aiAdvicePanel" class="panel ai-advice-panel">
+            <h2>🤖 AI 종합 조언</h2>
+            <div id="aiAdviceContent">AI가 조언을 생성 중입니다...</div>
         </div>
 
         <div id="percentileAnalysisPanel" class="panel percentile-analysis-panel">
             <h2>점수 분포 분석</h2>
             <div class="filter-section">
-                <div class="filter-group" id="genderFilter">
-                    <legend>성별</legend>
-                </div>
-                <div class="filter-group" id="ageRangeFilter">
-                    <legend>연령대</legend>
-                </div>
-                <div class="filter-group" id="occupationFilter">
-                    <legend>직군</legend>
-                </div>
+                <div class="filter-group" id="genderFilter"><legend>성별</legend></div>
+                <div class="filter-group" id="ageRangeFilter"><legend>연령대</legend></div>
+                <div class="filter-group" id="occupationFilter"><legend>직군</legend></div>
                 <button id="updateAnalysisBtn" class="btn btn-secondary">분석하기</button>
             </div>
             <div id="percentileCharts" class="percentile-charts-grid"></div>
@@ -235,6 +233,7 @@
             video: document.getElementById('localVideo'),
             startBtn: document.getElementById('startBtn'),
             finishBtn: document.getElementById('finishBtn'),
+            getAdviceBtn: document.getElementById('getAdviceBtn'),
             transcription: document.getElementById('transcription'),
             analysisStatus: document.getElementById('analysis-status'),
             resultsContainer: document.getElementById('resultsContainer'),
@@ -243,6 +242,8 @@
             percentileAnalysisPanel: document.getElementById('percentileAnalysisPanel'),
             percentileCharts: document.getElementById('percentileCharts'),
             updateAnalysisBtn: document.getElementById('updateAnalysisBtn'),
+            aiAdvicePanel: document.getElementById('aiAdvicePanel'),
+            aiAdviceContent: document.getElementById('aiAdviceContent'),
             rt: {
                 posture: document.getElementById('rt-posture'),
                 head: document.getElementById('rt-head'),
@@ -266,6 +267,22 @@
             occupation: ["ARD", "BM", "ICT", "MM", "PS", "RND", "SM"]
         };
 
+        function getCookie(name) {
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== '') {
+                const cookies = document.cookie.split(';');
+                for (let i = 0; i < cookies.length; i++) {
+                    const cookie = cookies[i].trim();
+                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                        break;
+                    }
+                }
+            }
+            return cookieValue;
+        }
+        const csrftoken = getCookie('csrftoken');
+
         function generateUUID() {
             return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
                 (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
@@ -276,6 +293,7 @@
             await setupMedia();
             setupWebSockets();
             setupFilters();
+            elems.getAdviceBtn.addEventListener('click', fetchAIAdvice);
         });
 
         function setupWebSockets() {
@@ -365,6 +383,8 @@
             elems.resultsContainer.style.display = 'none';
             elems.analysisStatus.style.display = 'none';
             elems.percentileAnalysisPanel.style.display = 'none';
+            elems.aiAdvicePanel.style.display = 'none';
+            elems.getAdviceBtn.disabled = true;
 
             fullTranscript = '';
             interimTranscript = '';
@@ -459,9 +479,10 @@
                 elems.analysisStatus.textContent = '분석이 완료되었습니다!';
                 renderResultsTable(analysisResults['voice_scores_update'], analysisResults['video_analysis_update']);
                 elems.resultsContainer.style.display = 'block';
+                elems.getAdviceBtn.disabled = false;
                 
                 elems.percentileAnalysisPanel.style.display = 'block';
-                fetchAndDrawPercentiles(); // Initial analysis with no filters
+                fetchAndDrawPercentiles();
 
                 elems.startBtn.disabled = false;
             }
@@ -513,8 +534,53 @@
             elems.resultsTables.innerHTML = voiceScores + videoScores;
         }
 
-        // --- Percentile Analysis Functions ---
+        // --- AI Advice Functions ---
+        async function fetchAIAdvice() {
+            if (!analysisResults.voice_scores_update || !analysisResults.video_analysis_update) {
+                alert('분석 데이터가 부족하여 AI 조언을 생성할 수 없습니다.');
+                return;
+            }
 
+            elems.getAdviceBtn.disabled = true;
+            elems.getAdviceBtn.textContent = 'AI 분석 중...';
+            elems.aiAdvicePanel.style.display = 'block';
+            elems.aiAdviceContent.textContent = 'AI가 조언을 생성 중입니다. 잠시만 기다려주세요...';
+
+            const payload = {
+                voice_analysis: analysisResults.voice_scores_update,
+                video_analysis: analysisResults.video_analysis_update
+            };
+
+            try {
+                const response = await fetch('/api/v1/analysis/advice/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrftoken
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    throw new Error(`API Error: ${response.status} ${response.statusText}`);
+                }
+
+                const result = await response.json();
+                if (result.status === 'success') {
+                    elems.aiAdviceContent.textContent = result.advice;
+                } else {
+                    elems.aiAdviceContent.textContent = result.fallback_advice || 'AI 조언 생성에 실패했습니다.';
+                }
+            } catch (error) {
+                console.error("Failed to fetch AI advice:", error);
+                elems.aiAdviceContent.textContent = 'AI 조언을 불러오는 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.';
+            } finally {
+                elems.getAdviceBtn.disabled = false;
+                elems.getAdviceBtn.textContent = '🤖 AI 조언 보기';
+            }
+        }
+
+        // --- Percentile Analysis Functions ---
         function setupFilters() {
             Object.keys(filterOptions).forEach(key => {
                 const container = document.getElementById(`${key}Filter`);
@@ -535,9 +601,7 @@
         function getSelectedFilters() {
             const filters = {};
             document.querySelectorAll('.filter-section input[type="checkbox"]:checked').forEach(checkbox => {
-                if (!filters[checkbox.name]) {
-                    filters[checkbox.name] = [];
-                }
+                if (!filters[checkbox.name]) filters[checkbox.name] = [];
                 filters[checkbox.name].push(checkbox.value);
             });
             return filters;
@@ -552,18 +616,8 @@
 
             const filters = getSelectedFilters();
             const params = new URLSearchParams();
-
-            Object.keys(voiceScores).forEach(key => {
-                if (key.endsWith('_score')) {
-                    params.append(key, voiceScores[key]);
-                }
-            });
-
-            Object.keys(filters).forEach(key => {
-                filters[key].forEach(value => {
-                    params.append(key, value);
-                });
-            });
+            Object.keys(voiceScores).forEach(key => { if (key.endsWith('_score')) params.append(key, voiceScores[key]); });
+            Object.keys(filters).forEach(key => { filters[key].forEach(value => params.append(key, value)); });
             
             try {
                 const response = await fetch(`/api/v1/analysis/percentiles/?${params.toString()}`);
@@ -582,25 +636,16 @@
         function pdf(x, mean, std) {
             if (std === 0) return x === mean ? 1 : 0;
             const variance = std * std;
-            const factor = 1 / Math.sqrt(2 * Math.PI * variance);
-            return factor * Math.exp(-0.5 * ((x - mean) * (x - mean)) / variance);
+            return (1 / (Math.sqrt(2 * Math.PI * variance))) * Math.exp(-0.5 * ((x - mean) ** 2) / variance);
         }
 
         function drawDistributionCharts(analysisData) {
-            const scoreNames = {
-                confidence_score: '자신감',
-                fluency_score: '유창성',
-                stability_score: '안정성',
-                clarity_score: '명료성',
-                overall_score: '종합'
-            };
-
+            const scoreNames = { confidence_score: '자신감', fluency_score: '유창성', stability_score: '안정성', clarity_score: '명료성', overall_score: '종합' };
             elems.percentileCharts.innerHTML = '';
 
             Object.keys(scoreNames).forEach(scoreKey => {
                 const data = analysisData[scoreKey];
                 if (!data) return;
-
                 const { mean, std, user_score, percentile } = data;
 
                 const chartContainer = document.createElement('div');
@@ -609,70 +654,22 @@
                 chartContainer.appendChild(canvas);
                 elems.percentileCharts.appendChild(chartContainer);
 
-                if (percentileCharts[scoreKey]) {
-                    percentileCharts[scoreKey].destroy();
-                }
+                if (percentileCharts[scoreKey]) percentileCharts[scoreKey].destroy();
 
                 const labels = Array.from({ length: 101 }, (_, i) => i);
                 const curveData = labels.map(x => pdf(x, mean, std));
 
                 percentileCharts[scoreKey] = new Chart(canvas, {
                     type: 'line',
-                    data: {
-                        labels: labels,
-                        datasets: [{
-                            label: '점수 분포',
-                            data: curveData,
-                            borderColor: 'rgba(44, 82, 130, 0.5)',
-                            backgroundColor: 'rgba(44, 82, 130, 0.2)',
-                            fill: true,
-                            pointRadius: 0,
-                            borderWidth: 2
-                        }]
-                    },
+                    data: { labels: labels, datasets: [{ label: '점수 분포', data: curveData, borderColor: 'rgba(44, 82, 130, 0.5)', backgroundColor: 'rgba(44, 82, 130, 0.2)', fill: true, pointRadius: 0, borderWidth: 2 }] },
                     options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        scales: {
-                            y: {
-                                display: false,
-                                beginAtZero: true
-                            },
-                            x: {
-                                type: 'linear',
-                                min: 0,
-                                max: 100,
-                                title: {
-                                    display: true,
-                                    text: '점수'
-                                }
-                            }
-                        },
+                        responsive: true, maintainAspectRatio: false,
+                        scales: { y: { display: false, beginAtZero: true }, x: { type: 'linear', min: 0, max: 100, title: { display: true, text: '점수' } } },
                         plugins: {
                             legend: { display: false },
-                            title: {
-                                display: true,
-                                text: `${scoreNames[scoreKey]} (상위 ${percentile}%)`,
-                                font: { size: 16 }
-                            },
+                            title: { display: true, text: `${scoreNames[scoreKey]} (상위 ${percentile}%)`, font: { size: 16 } },
                             tooltip: { enabled: false },
-                            annotation: {
-                                annotations: {
-                                    userScoreLine: {
-                                        type: 'line',
-                                        scaleID: 'x',
-                                        value: user_score,
-                                        borderColor: '#e53e3e',
-                                        borderWidth: 2,
-                                        label: {
-                                            content: `내 점수: ${user_score.toFixed(1)}`,
-                                            display: true,
-                                            position: 'start',
-                                            backgroundColor: '#e53e3e'
-                                        }
-                                    }
-                                }
-                            }
+                            annotation: { annotations: { userScoreLine: { type: 'line', scaleID: 'x', value: user_score, borderColor: '#e53e3e', borderWidth: 2, label: { content: `내 점수: ${user_score.toFixed(1)}`, display: true, position: 'start', backgroundColor: '#e53e3e' } } } }
                         }
                     }
                 });
