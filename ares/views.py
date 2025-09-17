@@ -13,9 +13,18 @@ from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 
 
+from drf_spectacular.utils import extend_schema
+from rest_framework import serializers
+
+
+class HealthCheckSerializer(serializers.Serializer):
+    status = serializers.CharField()
+
+
 class HealthCheckView(APIView):
     """API server health check"""
 
+    @extend_schema(responses=HealthCheckSerializer)
     def get(self, request, *args, **kwargs):
         return Response({"status": "ok"}, status=status.HTTP_200_OK)
 

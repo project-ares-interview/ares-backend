@@ -2,6 +2,7 @@ import datetime
 from rest_framework import viewsets, status
 from rest_framework.response import Response
 from ares.api.serializers.v1.example import ExampleSerializer
+from drf_spectacular.utils import extend_schema
 
 
 # Dummy data
@@ -26,11 +27,13 @@ class ExampleViewSet(viewsets.ViewSet):
     A simple ViewSet for viewing examples with dummy data.
     """
 
+    @extend_schema(responses=ExampleSerializer(many=True))
     def list(self, _):
         serializer = ExampleSerializer(DUMMY_DATA, many=True)
         return Response(serializer.data)
 
-    def retrieve(self, _, pk=None):
+    @extend_schema(responses=ExampleSerializer)
+    def retrieve(self, _, pk: int = None):
         try:
             item = next(item for item in DUMMY_DATA if item["id"] == int(pk))
         except (StopIteration, ValueError):
