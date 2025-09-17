@@ -86,8 +86,9 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "django.contrib.sites",
     # 3rd-party-apps
-    "rest_framework",
-    "rest_framework.authtoken",
+    'rest_framework',
+    'drf_spectacular',
+    'rest_framework.authtoken',
     "rest_framework_simplejwt",
     "corsheaders",
     "dj_rest_auth",
@@ -200,6 +201,7 @@ SOCIALACCOUNT_ADAPTER = "ares.api.adapter.CustomSocialAccountAdapter"
 REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
     "DEFAULT_AUTHENTICATION_CLASSES": ("dj_rest_auth.jwt_auth.JWTCookieAuthentication",),
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
 }
 
 REST_AUTH = {
@@ -240,6 +242,14 @@ CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels.layers.InMemoryChannelLayer"
     }
+}
+
+
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'Ares Backend API',
+    'DESCRIPTION': 'API documentation for the Ares project',
+    'VERSION': '1.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
 }
 
 
