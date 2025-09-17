@@ -1,0 +1,3659 @@
+openapi: 3.0.3
+info:
+  title: Ares Backend API
+  version: 1.0.0
+  description: API documentation for the Ares project
+paths:
+  /api/v1/analysis/advice/:
+    post:
+      operationId: api_v1_analysis_advice_create
+      description: Generates advice based on the provided analysis data.
+      tags:
+      - api
+      responses:
+        '200':
+          description: No response body
+  /api/v1/analysis/percentiles/:
+    get:
+      operationId: api_v1_analysis_percentiles_retrieve
+      description: |-
+        Calculates percentiles for given scores based on query parameters.
+
+        Query Params:
+        - Scores (required): e.g., confidence_score=85, fluency_score=92
+        - Filters (optional): e.g., gender=MALE, ageRange=-34, occupation=ICT
+          (Filters can have multiple values, e.g., &occupation=ICT&occupation=RND)
+      tags:
+      - api
+      responses:
+        '200':
+          description: No response body
+  /api/v1/analyze/:
+    get:
+      operationId: api_v1_analyze_retrieve
+      description: 점수 분석 수행
+      tags:
+      - api
+      responses:
+        '200':
+          description: No response body
+  /api/v1/auth/google/:
+    post:
+      operationId: api_v1_auth_google_create
+      description: |-
+        class used for social authentications
+        example usage for facebook with access_token
+        -------------
+        from allauth.socialaccount.providers.facebook.views import FacebookOAuth2Adapter
+
+        class FacebookLogin(SocialLoginView):
+            adapter_class = FacebookOAuth2Adapter
+        -------------
+
+        example usage for facebook with code
+
+        -------------
+        from allauth.socialaccount.providers.facebook.views import FacebookOAuth2Adapter
+        from allauth.socialaccount.providers.oauth2.client import OAuth2Client
+
+        class FacebookLogin(SocialLoginView):
+            adapter_class = FacebookOAuth2Adapter
+            client_class = OAuth2Client
+            callback_url = 'localhost:8000'
+        -------------
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SocialLogin'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SocialLogin'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SocialLogin'
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SocialLogin'
+          description: ''
+  /api/v1/auth/google/register/:
+    post:
+      operationId: api_v1_auth_google_register_create
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SocialUserRegister'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SocialUserRegister'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SocialUserRegister'
+        required: true
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      - {}
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SocialUserRegister'
+          description: ''
+  /api/v1/auth/login/:
+    post:
+      operationId: api_v1_auth_login_create
+      description: |-
+        Check the credentials and return the REST Token
+        if the credentials are valid and authenticated.
+        Calls Django Auth login method to register User ID
+        in Django session framework
+
+        Accept the following POST parameters: username, password
+        Return the REST Framework Token Object's key.
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Login'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Login'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Login'
+        required: true
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JWT'
+          description: ''
+  /api/v1/auth/logout/:
+    post:
+      operationId: api_v1_auth_logout_create
+      description: |-
+        Calls Django logout method and delete the Token object
+        assigned to the current User object.
+
+        Accepts/Returns nothing.
+      tags:
+      - api
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RestAuthDetail'
+          description: ''
+  /api/v1/auth/registration/:
+    post:
+      operationId: api_v1_auth_registration_create
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserRegister'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/UserRegister'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/UserRegister'
+        required: true
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      - {}
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserRegister'
+          description: ''
+  /api/v1/auth/token/refresh/:
+    post:
+      operationId: api_v1_auth_token_refresh_create
+      description: |-
+        Takes a refresh type JSON web token and returns an access type JSON web
+        token if the refresh token is valid.
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenRefresh'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TokenRefresh'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TokenRefresh'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenRefresh'
+          description: ''
+  /api/v1/auth/user/:
+    get:
+      operationId: api_v1_auth_user_retrieve
+      description: |-
+        Reads and updates UserModel fields
+        Accepts GET, PUT, PATCH methods.
+
+        Default accepted fields: username, first_name, last_name
+        Default display fields: pk, username, email, first_name, last_name
+        Read-only fields: pk, email
+
+        Returns UserModel fields.
+      tags:
+      - api
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserDetail'
+          description: ''
+    put:
+      operationId: api_v1_auth_user_update
+      description: |-
+        Reads and updates UserModel fields
+        Accepts GET, PUT, PATCH methods.
+
+        Default accepted fields: username, first_name, last_name
+        Default display fields: pk, username, email, first_name, last_name
+        Read-only fields: pk, email
+
+        Returns UserModel fields.
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserDetail'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/UserDetail'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/UserDetail'
+        required: true
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserDetail'
+          description: ''
+    patch:
+      operationId: api_v1_auth_user_partial_update
+      description: |-
+        Reads and updates UserModel fields
+        Accepts GET, PUT, PATCH methods.
+
+        Default accepted fields: username, first_name, last_name
+        Default display fields: pk, username, email, first_name, last_name
+        Read-only fields: pk, email
+
+        Returns UserModel fields.
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedUserDetail'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedUserDetail'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedUserDetail'
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserDetail'
+          description: ''
+  /api/v1/cover-letters/:
+    get:
+      operationId: api_v1_cover_letters_list
+      tags:
+      - api
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CoverLetter'
+          description: ''
+    post:
+      operationId: api_v1_cover_letters_create
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CoverLetter'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/CoverLetter'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/CoverLetter'
+        required: true
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CoverLetter'
+          description: ''
+  /api/v1/cover-letters/{id}/:
+    get:
+      operationId: api_v1_cover_letters_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CoverLetter'
+          description: ''
+    put:
+      operationId: api_v1_cover_letters_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CoverLetter'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/CoverLetter'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/CoverLetter'
+        required: true
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CoverLetter'
+          description: ''
+    patch:
+      operationId: api_v1_cover_letters_partial_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedCoverLetter'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedCoverLetter'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedCoverLetter'
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CoverLetter'
+          description: ''
+    delete:
+      operationId: api_v1_cover_letters_destroy
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/examples/:
+    get:
+      operationId: api_v1_examples_retrieve
+      description: A simple ViewSet for viewing examples with dummy data.
+      tags:
+      - api
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/examples/{id}/:
+    get:
+      operationId: api_v1_examples_retrieve_2
+      description: A simple ViewSet for viewing examples with dummy data.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/interview/find-companies/:
+    post:
+      operationId: api_v1_interview_find_companies_create
+      description: 키워드로 계열사 목록을 검색하는 API
+      tags:
+      - api
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/interviews/answer/:
+    post:
+      operationId: api_v1_interviews_answer_create
+      description: |-
+        - 후보자 답변을 저장
+        - 분석 수행 (구조화 + RAG)
+        - follow-up 후보 리스트 생성 후 세션 FSM에 '적재만' (커서 이동 없음)
+      tags:
+      - api
+      security:
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/v1/interviews/finish/:
+    post:
+      operationId: api_v1_interviews_finish_create
+      description: |-
+        - 세션 종료 처리
+        - 리포트 즉시 생성 → 세션 meta["final_report"]에 저장, report_id/finished_at 세팅
+      tags:
+      - api
+      security:
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/v1/interviews/next/:
+    post:
+      operationId: api_v1_interviews_next_create
+      description: |-
+        - FSM에 기반해 다음 질문을 결정
+          1) pending_followups가 남아있고 followup_idx < 상한 → 해당 꼬리질문 반환
+          2) 아니면 메인 플랜 다음 문항으로 커서 이동하여 질문 반환
+          3) 전부 소진되면 done:true
+      tags:
+      - api
+      security:
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/v1/interviews/report/{session_id}/:
+    get:
+      operationId: api_v1_interviews_report_retrieve
+      description: |-
+        - 세션별 리포트 반환
+        - 이미 meta["final_report"]가 있으면 그것을 반환
+        - 없으면 온디맨드 생성 후 저장
+      parameters:
+      - in: path
+        name: session_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - api
+      security:
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/v1/interviews/start/:
+    post:
+      operationId: api_v1_interviews_start_create
+      tags:
+      - api
+      security:
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/v1/profile/careers/:
+    get:
+      operationId: api_v1_profile_careers_list
+      tags:
+      - api
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Career'
+          description: ''
+    post:
+      operationId: api_v1_profile_careers_create
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Career'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Career'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Career'
+        required: true
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Career'
+          description: ''
+  /api/v1/profile/careers/{id}/:
+    get:
+      operationId: api_v1_profile_careers_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Career'
+          description: ''
+    put:
+      operationId: api_v1_profile_careers_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Career'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Career'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Career'
+        required: true
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Career'
+          description: ''
+    patch:
+      operationId: api_v1_profile_careers_partial_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedCareer'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedCareer'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedCareer'
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Career'
+          description: ''
+    delete:
+      operationId: api_v1_profile_careers_destroy
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/profile/disabilities/:
+    get:
+      operationId: api_v1_profile_disabilities_list
+      tags:
+      - api
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Disability'
+          description: ''
+    post:
+      operationId: api_v1_profile_disabilities_create
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Disability'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Disability'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Disability'
+        required: true
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Disability'
+          description: ''
+  /api/v1/profile/disabilities/{id}/:
+    get:
+      operationId: api_v1_profile_disabilities_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Disability'
+          description: ''
+    put:
+      operationId: api_v1_profile_disabilities_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Disability'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Disability'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Disability'
+        required: true
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Disability'
+          description: ''
+    patch:
+      operationId: api_v1_profile_disabilities_partial_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedDisability'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedDisability'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedDisability'
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Disability'
+          description: ''
+    delete:
+      operationId: api_v1_profile_disabilities_destroy
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/profile/educations/:
+    get:
+      operationId: api_v1_profile_educations_list
+      tags:
+      - api
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Education'
+          description: ''
+    post:
+      operationId: api_v1_profile_educations_create
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Education'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Education'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Education'
+        required: true
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Education'
+          description: ''
+  /api/v1/profile/educations/{id}/:
+    get:
+      operationId: api_v1_profile_educations_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Education'
+          description: ''
+    put:
+      operationId: api_v1_profile_educations_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Education'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Education'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Education'
+        required: true
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Education'
+          description: ''
+    patch:
+      operationId: api_v1_profile_educations_partial_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedEducation'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedEducation'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedEducation'
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Education'
+          description: ''
+    delete:
+      operationId: api_v1_profile_educations_destroy
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/profile/job-interests/:
+    get:
+      operationId: api_v1_profile_job_interests_list
+      tags:
+      - api
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/JobInterest'
+          description: ''
+    post:
+      operationId: api_v1_profile_job_interests_create
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JobInterest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/JobInterest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/JobInterest'
+        required: true
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobInterest'
+          description: ''
+  /api/v1/profile/job-interests/{id}/:
+    get:
+      operationId: api_v1_profile_job_interests_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobInterest'
+          description: ''
+    put:
+      operationId: api_v1_profile_job_interests_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JobInterest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/JobInterest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/JobInterest'
+        required: true
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobInterest'
+          description: ''
+    patch:
+      operationId: api_v1_profile_job_interests_partial_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedJobInterest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedJobInterest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedJobInterest'
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobInterest'
+          description: ''
+    delete:
+      operationId: api_v1_profile_job_interests_destroy
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/profile/military-services/:
+    get:
+      operationId: api_v1_profile_military_services_list
+      tags:
+      - api
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MilitaryService'
+          description: ''
+    post:
+      operationId: api_v1_profile_military_services_create
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MilitaryService'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/MilitaryService'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/MilitaryService'
+        required: true
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MilitaryService'
+          description: ''
+  /api/v1/profile/military-services/{id}/:
+    get:
+      operationId: api_v1_profile_military_services_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MilitaryService'
+          description: ''
+    put:
+      operationId: api_v1_profile_military_services_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MilitaryService'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/MilitaryService'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/MilitaryService'
+        required: true
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MilitaryService'
+          description: ''
+    patch:
+      operationId: api_v1_profile_military_services_partial_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedMilitaryService'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedMilitaryService'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedMilitaryService'
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MilitaryService'
+          description: ''
+    delete:
+      operationId: api_v1_profile_military_services_destroy
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/profile/patriots/:
+    get:
+      operationId: api_v1_profile_patriots_list
+      tags:
+      - api
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Patriot'
+          description: ''
+    post:
+      operationId: api_v1_profile_patriots_create
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Patriot'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Patriot'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Patriot'
+        required: true
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Patriot'
+          description: ''
+  /api/v1/profile/patriots/{id}/:
+    get:
+      operationId: api_v1_profile_patriots_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Patriot'
+          description: ''
+    put:
+      operationId: api_v1_profile_patriots_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Patriot'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Patriot'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Patriot'
+        required: true
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Patriot'
+          description: ''
+    patch:
+      operationId: api_v1_profile_patriots_partial_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedPatriot'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedPatriot'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedPatriot'
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Patriot'
+          description: ''
+    delete:
+      operationId: api_v1_profile_patriots_destroy
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/resume/analyze/:
+    post:
+      operationId: api_v1_resume_analyze_create
+      tags:
+      - api
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/v1/resumes/:
+    get:
+      operationId: api_v1_resumes_list
+      description: 이력서 템플릿 CRUD를 위한 ViewSet.
+      tags:
+      - api
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Resume'
+          description: ''
+    post:
+      operationId: api_v1_resumes_create
+      description: 이력서 템플릿 CRUD를 위한 ViewSet.
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Resume'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Resume'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Resume'
+        required: true
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Resume'
+          description: ''
+  /api/v1/resumes/{id}/:
+    get:
+      operationId: api_v1_resumes_retrieve
+      description: 이력서 템플릿 CRUD를 위한 ViewSet.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Resume'
+          description: ''
+    put:
+      operationId: api_v1_resumes_update
+      description: 이력서 템플릿 CRUD를 위한 ViewSet.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Resume'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Resume'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Resume'
+        required: true
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Resume'
+          description: ''
+    patch:
+      operationId: api_v1_resumes_partial_update
+      description: 이력서 템플릿 CRUD를 위한 ViewSet.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedResume'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedResume'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedResume'
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Resume'
+          description: ''
+    delete:
+      operationId: api_v1_resumes_destroy
+      description: 이력서 템플릿 CRUD를 위한 ViewSet.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/resumes/{resume_pk}/awards/:
+    get:
+      operationId: api_v1_resumes_awards_list
+      description: 특정 이력서에 대한 수상/자격증 CRUD를 위한 ViewSet
+      parameters:
+      - in: path
+        name: resume_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ResumeAward'
+          description: ''
+    post:
+      operationId: api_v1_resumes_awards_create
+      description: 특정 이력서에 대한 수상/자격증 CRUD를 위한 ViewSet
+      parameters:
+      - in: path
+        name: resume_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResumeAward'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ResumeAward'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ResumeAward'
+        required: true
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResumeAward'
+          description: ''
+  /api/v1/resumes/{resume_pk}/awards/{id}/:
+    get:
+      operationId: api_v1_resumes_awards_retrieve
+      description: 특정 이력서에 대한 수상/자격증 CRUD를 위한 ViewSet
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      - in: path
+        name: resume_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResumeAward'
+          description: ''
+    put:
+      operationId: api_v1_resumes_awards_update
+      description: 특정 이력서에 대한 수상/자격증 CRUD를 위한 ViewSet
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      - in: path
+        name: resume_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResumeAward'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ResumeAward'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ResumeAward'
+        required: true
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResumeAward'
+          description: ''
+    patch:
+      operationId: api_v1_resumes_awards_partial_update
+      description: 특정 이력서에 대한 수상/자격증 CRUD를 위한 ViewSet
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      - in: path
+        name: resume_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedResumeAward'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedResumeAward'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedResumeAward'
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResumeAward'
+          description: ''
+    delete:
+      operationId: api_v1_resumes_awards_destroy
+      description: 특정 이력서에 대한 수상/자격증 CRUD를 위한 ViewSet
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      - in: path
+        name: resume_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/resumes/{resume_pk}/careers/:
+    get:
+      operationId: api_v1_resumes_careers_list
+      description: 특정 이력서에 대한 경력 사항 CRUD를 위한 ViewSet
+      parameters:
+      - in: path
+        name: resume_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ResumeCareer'
+          description: ''
+    post:
+      operationId: api_v1_resumes_careers_create
+      description: 특정 이력서에 대한 경력 사항 CRUD를 위한 ViewSet
+      parameters:
+      - in: path
+        name: resume_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResumeCareer'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ResumeCareer'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ResumeCareer'
+        required: true
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResumeCareer'
+          description: ''
+  /api/v1/resumes/{resume_pk}/careers/{id}/:
+    get:
+      operationId: api_v1_resumes_careers_retrieve
+      description: 특정 이력서에 대한 경력 사항 CRUD를 위한 ViewSet
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      - in: path
+        name: resume_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResumeCareer'
+          description: ''
+    put:
+      operationId: api_v1_resumes_careers_update
+      description: 특정 이력서에 대한 경력 사항 CRUD를 위한 ViewSet
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      - in: path
+        name: resume_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResumeCareer'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ResumeCareer'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ResumeCareer'
+        required: true
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResumeCareer'
+          description: ''
+    patch:
+      operationId: api_v1_resumes_careers_partial_update
+      description: 특정 이력서에 대한 경력 사항 CRUD를 위한 ViewSet
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      - in: path
+        name: resume_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedResumeCareer'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedResumeCareer'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedResumeCareer'
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResumeCareer'
+          description: ''
+    delete:
+      operationId: api_v1_resumes_careers_destroy
+      description: 특정 이력서에 대한 경력 사항 CRUD를 위한 ViewSet
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      - in: path
+        name: resume_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/resumes/{resume_pk}/educations/:
+    get:
+      operationId: api_v1_resumes_educations_list
+      description: 특정 이력서에 대한 학력 사항 CRUD를 위한 ViewSet
+      parameters:
+      - in: path
+        name: resume_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ResumeEducation'
+          description: ''
+    post:
+      operationId: api_v1_resumes_educations_create
+      description: 특정 이력서에 대한 학력 사항 CRUD를 위한 ViewSet
+      parameters:
+      - in: path
+        name: resume_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResumeEducation'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ResumeEducation'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ResumeEducation'
+        required: true
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResumeEducation'
+          description: ''
+  /api/v1/resumes/{resume_pk}/educations/{id}/:
+    get:
+      operationId: api_v1_resumes_educations_retrieve
+      description: 특정 이력서에 대한 학력 사항 CRUD를 위한 ViewSet
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      - in: path
+        name: resume_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResumeEducation'
+          description: ''
+    put:
+      operationId: api_v1_resumes_educations_update
+      description: 특정 이력서에 대한 학력 사항 CRUD를 위한 ViewSet
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      - in: path
+        name: resume_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResumeEducation'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ResumeEducation'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ResumeEducation'
+        required: true
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResumeEducation'
+          description: ''
+    patch:
+      operationId: api_v1_resumes_educations_partial_update
+      description: 특정 이력서에 대한 학력 사항 CRUD를 위한 ViewSet
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      - in: path
+        name: resume_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedResumeEducation'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedResumeEducation'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedResumeEducation'
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResumeEducation'
+          description: ''
+    delete:
+      operationId: api_v1_resumes_educations_destroy
+      description: 특정 이력서에 대한 학력 사항 CRUD를 위한 ViewSet
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      - in: path
+        name: resume_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/resumes/{resume_pk}/languages/:
+    get:
+      operationId: api_v1_resumes_languages_list
+      description: 특정 이력서에 대한 외국어 능력 CRUD를 위한 ViewSet
+      parameters:
+      - in: path
+        name: resume_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ResumeLanguage'
+          description: ''
+    post:
+      operationId: api_v1_resumes_languages_create
+      description: 특정 이력서에 대한 외국어 능력 CRUD를 위한 ViewSet
+      parameters:
+      - in: path
+        name: resume_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResumeLanguage'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ResumeLanguage'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ResumeLanguage'
+        required: true
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResumeLanguage'
+          description: ''
+  /api/v1/resumes/{resume_pk}/languages/{id}/:
+    get:
+      operationId: api_v1_resumes_languages_retrieve
+      description: 특정 이력서에 대한 외국어 능력 CRUD를 위한 ViewSet
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      - in: path
+        name: resume_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResumeLanguage'
+          description: ''
+    put:
+      operationId: api_v1_resumes_languages_update
+      description: 특정 이력서에 대한 외국어 능력 CRUD를 위한 ViewSet
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      - in: path
+        name: resume_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResumeLanguage'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ResumeLanguage'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ResumeLanguage'
+        required: true
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResumeLanguage'
+          description: ''
+    patch:
+      operationId: api_v1_resumes_languages_partial_update
+      description: 특정 이력서에 대한 외국어 능력 CRUD를 위한 ViewSet
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      - in: path
+        name: resume_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedResumeLanguage'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedResumeLanguage'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedResumeLanguage'
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResumeLanguage'
+          description: ''
+    delete:
+      operationId: api_v1_resumes_languages_destroy
+      description: 특정 이력서에 대한 외국어 능력 CRUD를 위한 ViewSet
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      - in: path
+        name: resume_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/resumes/{resume_pk}/links/:
+    get:
+      operationId: api_v1_resumes_links_list
+      description: 특정 이력서에 대한 링크 CRUD를 위한 ViewSet
+      parameters:
+      - in: path
+        name: resume_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ResumeLink'
+          description: ''
+    post:
+      operationId: api_v1_resumes_links_create
+      description: 특정 이력서에 대한 링크 CRUD를 위한 ViewSet
+      parameters:
+      - in: path
+        name: resume_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResumeLink'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ResumeLink'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ResumeLink'
+        required: true
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResumeLink'
+          description: ''
+  /api/v1/resumes/{resume_pk}/links/{id}/:
+    get:
+      operationId: api_v1_resumes_links_retrieve
+      description: 특정 이력서에 대한 링크 CRUD를 위한 ViewSet
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      - in: path
+        name: resume_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResumeLink'
+          description: ''
+    put:
+      operationId: api_v1_resumes_links_update
+      description: 특정 이력서에 대한 링크 CRUD를 위한 ViewSet
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      - in: path
+        name: resume_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResumeLink'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ResumeLink'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ResumeLink'
+        required: true
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResumeLink'
+          description: ''
+    patch:
+      operationId: api_v1_resumes_links_partial_update
+      description: 특정 이력서에 대한 링크 CRUD를 위한 ViewSet
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      - in: path
+        name: resume_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedResumeLink'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedResumeLink'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedResumeLink'
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResumeLink'
+          description: ''
+    delete:
+      operationId: api_v1_resumes_links_destroy
+      description: 특정 이력서에 대한 링크 CRUD를 위한 ViewSet
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      - in: path
+        name: resume_pk
+        schema:
+          type: integer
+        required: true
+      tags:
+      - api
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/user/:
+    get:
+      operationId: api_v1_user_retrieve
+      description: |-
+        Reads and updates UserModel fields
+        Accepts GET, PUT, PATCH methods.
+
+        Default accepted fields: username, first_name, last_name
+        Default display fields: pk, username, email, first_name, last_name
+        Read-only fields: pk, email
+
+        Returns UserModel fields.
+      tags:
+      - api
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserDetail'
+          description: ''
+    put:
+      operationId: api_v1_user_update
+      description: |-
+        Reads and updates UserModel fields
+        Accepts GET, PUT, PATCH methods.
+
+        Default accepted fields: username, first_name, last_name
+        Default display fields: pk, username, email, first_name, last_name
+        Read-only fields: pk, email
+
+        Returns UserModel fields.
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserDetail'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/UserDetail'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/UserDetail'
+        required: true
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserDetail'
+          description: ''
+    patch:
+      operationId: api_v1_user_partial_update
+      description: |-
+        Reads and updates UserModel fields
+        Accepts GET, PUT, PATCH methods.
+
+        Default accepted fields: username, first_name, last_name
+        Default display fields: pk, username, email, first_name, last_name
+        Read-only fields: pk, email
+
+        Returns UserModel fields.
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedUserDetail'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedUserDetail'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedUserDetail'
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserDetail'
+          description: ''
+  /health:
+    get:
+      operationId: health_retrieve
+      description: API server health check
+      tags:
+      - health
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          description: No response body
+components:
+  schemas:
+    BlankEnum:
+      enum:
+      - ''
+    Career:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        order:
+          type: integer
+          description: 항목의 순서를 나타냅니다. 생성 시에는 자동으로 가장 마지막 순서로 지정됩니다.
+        company_name:
+          type: string
+          title: 회사명
+          maxLength: 100
+        experience_type:
+          allOf:
+          - $ref: '#/components/schemas/ExperienceTypeEnum'
+          title: 신입/경력
+        is_attending:
+          type: boolean
+          title: 재직중 여부
+        start_date:
+          type: string
+          format: date
+          title: 입사일
+        end_date:
+          type: string
+          format: date
+          nullable: true
+          title: 퇴사일
+        department:
+          type: string
+          title: 부서
+          maxLength: 100
+        responsibilities:
+          type: string
+          title: 직위/직책
+        task:
+          type: string
+          title: 담당 업무
+        reason_for_leaving:
+          type: string
+          title: 퇴사 사유
+          maxLength: 255
+        user:
+          type: integer
+          readOnly: true
+      required:
+      - company_name
+      - experience_type
+      - id
+      - start_date
+      - user
+    CoverLetter:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        title:
+          type: string
+          description: 자기소개서 제목
+          maxLength: 100
+        content:
+          type: string
+          description: 자기소개서 내용
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+          description: 생성 일시
+        user:
+          type: integer
+          readOnly: true
+          description: 자기소개서 작성자
+      required:
+      - content
+      - created_at
+      - id
+      - title
+      - user
+    DegreeEnum:
+      enum:
+      - associate
+      - bachelor
+      - master
+      - doctorate
+      type: string
+      description: |-
+        * `associate` - 전문학사
+        * `bachelor` - 학사
+        * `master` - 석사
+        * `doctorate` - 박사
+    Disability:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        order:
+          type: integer
+          description: 항목의 순서를 나타냅니다. 생성 시에는 자동으로 가장 마지막 순서로 지정됩니다.
+        disability_type:
+          type: string
+          title: 장애 종류
+          maxLength: 100
+        severity:
+          allOf:
+          - $ref: '#/components/schemas/SeverityEnum'
+          title: 장애 중증도
+        user:
+          type: integer
+          readOnly: true
+      required:
+      - disability_type
+      - id
+      - severity
+      - user
+    Education:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        order:
+          type: integer
+          description: 항목의 순서를 나타냅니다. 생성 시에는 자동으로 가장 마지막 순서로 지정됩니다.
+        school_type:
+          allOf:
+          - $ref: '#/components/schemas/SchoolTypeEnum'
+          title: 학교 종류
+        school_name:
+          type: string
+          title: 학교명
+          maxLength: 100
+        major:
+          type: string
+          nullable: true
+          title: 전공명
+          maxLength: 100
+        degree:
+          nullable: true
+          title: 학위
+          oneOf:
+          - $ref: '#/components/schemas/DegreeEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        status:
+          allOf:
+          - $ref: '#/components/schemas/Status76bEnum'
+          title: 재학 여부
+        admission_date:
+          type: string
+          format: date
+          title: 입학일 (YYYY-MM)
+        graduation_date:
+          type: string
+          format: date
+          nullable: true
+          title: 졸업일 (YYYY-MM)
+        user:
+          type: integer
+          readOnly: true
+      required:
+      - admission_date
+      - id
+      - school_name
+      - school_type
+      - status
+      - user
+    ExperienceTypeEnum:
+      enum:
+      - newcomer
+      - experienced
+      type: string
+      description: |-
+        * `newcomer` - 신입
+        * `experienced` - 경력
+    GenderEnum:
+      enum:
+      - male
+      - female
+      type: string
+      description: |-
+        * `male` - Male
+        * `female` - Female
+    JWT:
+      type: object
+      description: Serializer for JWT authentication.
+      properties:
+        access:
+          type: string
+        refresh:
+          type: string
+        user:
+          $ref: '#/components/schemas/UserDetail'
+      required:
+      - access
+      - refresh
+      - user
+    JobInterest:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        order:
+          type: integer
+          description: 항목의 순서를 나타냅니다. 생성 시에는 자동으로 가장 마지막 순서로 지정됩니다.
+        job_title:
+          type: string
+          title: 관심 직무
+          maxLength: 100
+        user:
+          type: integer
+          readOnly: true
+      required:
+      - id
+      - job_title
+      - user
+    Login:
+      type: object
+      properties:
+        username:
+          type: string
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+      required:
+      - password
+    MilitaryService:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/MilitaryServiceStatusEnum'
+          title: 복무 상태
+        user:
+          type: integer
+          readOnly: true
+      required:
+      - id
+      - status
+      - user
+    MilitaryServiceStatusEnum:
+      enum:
+      - served
+      - not_served
+      - exempted
+      - serving
+      type: string
+      description: |-
+        * `served` - 군필
+        * `not_served` - 미필
+        * `exempted` - 면제
+        * `serving` - 복무중
+    NullEnum:
+      enum:
+      - null
+    PatchedCareer:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        order:
+          type: integer
+          description: 항목의 순서를 나타냅니다. 생성 시에는 자동으로 가장 마지막 순서로 지정됩니다.
+        company_name:
+          type: string
+          title: 회사명
+          maxLength: 100
+        experience_type:
+          allOf:
+          - $ref: '#/components/schemas/ExperienceTypeEnum'
+          title: 신입/경력
+        is_attending:
+          type: boolean
+          title: 재직중 여부
+        start_date:
+          type: string
+          format: date
+          title: 입사일
+        end_date:
+          type: string
+          format: date
+          nullable: true
+          title: 퇴사일
+        department:
+          type: string
+          title: 부서
+          maxLength: 100
+        responsibilities:
+          type: string
+          title: 직위/직책
+        task:
+          type: string
+          title: 담당 업무
+        reason_for_leaving:
+          type: string
+          title: 퇴사 사유
+          maxLength: 255
+        user:
+          type: integer
+          readOnly: true
+    PatchedCoverLetter:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        title:
+          type: string
+          description: 자기소개서 제목
+          maxLength: 100
+        content:
+          type: string
+          description: 자기소개서 내용
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+          description: 생성 일시
+        user:
+          type: integer
+          readOnly: true
+          description: 자기소개서 작성자
+    PatchedDisability:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        order:
+          type: integer
+          description: 항목의 순서를 나타냅니다. 생성 시에는 자동으로 가장 마지막 순서로 지정됩니다.
+        disability_type:
+          type: string
+          title: 장애 종류
+          maxLength: 100
+        severity:
+          allOf:
+          - $ref: '#/components/schemas/SeverityEnum'
+          title: 장애 중증도
+        user:
+          type: integer
+          readOnly: true
+    PatchedEducation:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        order:
+          type: integer
+          description: 항목의 순서를 나타냅니다. 생성 시에는 자동으로 가장 마지막 순서로 지정됩니다.
+        school_type:
+          allOf:
+          - $ref: '#/components/schemas/SchoolTypeEnum'
+          title: 학교 종류
+        school_name:
+          type: string
+          title: 학교명
+          maxLength: 100
+        major:
+          type: string
+          nullable: true
+          title: 전공명
+          maxLength: 100
+        degree:
+          nullable: true
+          title: 학위
+          oneOf:
+          - $ref: '#/components/schemas/DegreeEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        status:
+          allOf:
+          - $ref: '#/components/schemas/Status76bEnum'
+          title: 재학 여부
+        admission_date:
+          type: string
+          format: date
+          title: 입학일 (YYYY-MM)
+        graduation_date:
+          type: string
+          format: date
+          nullable: true
+          title: 졸업일 (YYYY-MM)
+        user:
+          type: integer
+          readOnly: true
+    PatchedJobInterest:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        order:
+          type: integer
+          description: 항목의 순서를 나타냅니다. 생성 시에는 자동으로 가장 마지막 순서로 지정됩니다.
+        job_title:
+          type: string
+          title: 관심 직무
+          maxLength: 100
+        user:
+          type: integer
+          readOnly: true
+    PatchedMilitaryService:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/MilitaryServiceStatusEnum'
+          title: 복무 상태
+        user:
+          type: integer
+          readOnly: true
+    PatchedPatriot:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        patriot_code:
+          type: string
+          title: 보훈 코드
+          description: 보훈 대상자일 경우 해당 코드를 입력합니다.
+          maxLength: 50
+        user:
+          type: integer
+          readOnly: true
+    PatchedResume:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        user:
+          type: integer
+          readOnly: true
+          description: 이력서 작성자
+        title:
+          type: string
+          description: '이력서 제목 (예: 백엔드 개발자 지원용)'
+          maxLength: 100
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+          description: 생성 일시
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+          description: 최종 수정 일시
+    PatchedResumeAward:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        title:
+          type: string
+          description: 수상 또는 자격증명
+          maxLength: 100
+        issuer:
+          type: string
+          description: 발급 기관
+          maxLength: 100
+        date_awarded:
+          type: string
+          format: date
+          description: 취득일
+        resume:
+          type: integer
+          readOnly: true
+          description: 수상 내역이 포함된 이력서
+    PatchedResumeCareer:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        order:
+          type: integer
+          readOnly: true
+        company_name:
+          type: string
+          title: 회사명
+          maxLength: 100
+        experience_type:
+          allOf:
+          - $ref: '#/components/schemas/ExperienceTypeEnum'
+          title: 신입/경력
+        is_attending:
+          type: boolean
+          title: 재직중 여부
+        start_date:
+          type: string
+          format: date
+          title: 입사일
+        end_date:
+          type: string
+          format: date
+          nullable: true
+          title: 퇴사일
+        department:
+          type: string
+          title: 부서
+          maxLength: 100
+        responsibilities:
+          type: string
+          title: 직위/직책
+        task:
+          type: string
+          title: 담당 업무
+        reason_for_leaving:
+          type: string
+          title: 퇴사 사유
+          maxLength: 255
+        resume:
+          type: integer
+          readOnly: true
+          description: 경력 사항이 포함된 이력서
+    PatchedResumeEducation:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        order:
+          type: integer
+          readOnly: true
+        school_type:
+          allOf:
+          - $ref: '#/components/schemas/SchoolTypeEnum'
+          title: 학교 종류
+        school_name:
+          type: string
+          title: 학교명
+          maxLength: 100
+        major:
+          type: string
+          nullable: true
+          title: 전공명
+          maxLength: 100
+        degree:
+          nullable: true
+          title: 학위
+          oneOf:
+          - $ref: '#/components/schemas/DegreeEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        status:
+          allOf:
+          - $ref: '#/components/schemas/Status76bEnum'
+          title: 재학 여부
+        admission_date:
+          type: string
+          format: date
+          title: 입학일 (YYYY-MM)
+        graduation_date:
+          type: string
+          format: date
+          nullable: true
+          title: 졸업일 (YYYY-MM)
+        resume:
+          type: integer
+          readOnly: true
+          description: 학력 사항이 포함된 이력서
+    PatchedResumeLanguage:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        language:
+          type: string
+          description: '언어명 (예: English)'
+          maxLength: 50
+        proficiency:
+          type: string
+          description: '구사 수준 (예: Native, Fluent)'
+          maxLength: 50
+        resume:
+          type: integer
+          readOnly: true
+          description: 외국어 능력이 포함된 이력서
+    PatchedResumeLink:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        title:
+          type: string
+          description: '링크 제목 (예: GitHub, 포트폴리오)'
+          maxLength: 100
+        url:
+          type: string
+          format: uri
+          description: 링크 주소
+          maxLength: 200
+        resume:
+          type: integer
+          readOnly: true
+          description: 링크가 포함된 이력서
+    PatchedUserDetail:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        email:
+          type: string
+          format: email
+          readOnly: true
+        name:
+          type: string
+          maxLength: 100
+        gender:
+          nullable: true
+          oneOf:
+          - $ref: '#/components/schemas/GenderEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        birth:
+          type: string
+          format: date
+          nullable: true
+        phone_number:
+          type: string
+          nullable: true
+          maxLength: 20
+        date_joined:
+          type: string
+          format: date-time
+          readOnly: true
+    Patriot:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        patriot_code:
+          type: string
+          title: 보훈 코드
+          description: 보훈 대상자일 경우 해당 코드를 입력합니다.
+          maxLength: 50
+        user:
+          type: integer
+          readOnly: true
+      required:
+      - id
+      - patriot_code
+      - user
+    RestAuthDetail:
+      type: object
+      properties:
+        detail:
+          type: string
+          readOnly: true
+      required:
+      - detail
+    Resume:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        user:
+          type: integer
+          readOnly: true
+          description: 이력서 작성자
+        title:
+          type: string
+          description: '이력서 제목 (예: 백엔드 개발자 지원용)'
+          maxLength: 100
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+          description: 생성 일시
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+          description: 최종 수정 일시
+      required:
+      - created_at
+      - id
+      - title
+      - updated_at
+      - user
+    ResumeAward:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        title:
+          type: string
+          description: 수상 또는 자격증명
+          maxLength: 100
+        issuer:
+          type: string
+          description: 발급 기관
+          maxLength: 100
+        date_awarded:
+          type: string
+          format: date
+          description: 취득일
+        resume:
+          type: integer
+          readOnly: true
+          description: 수상 내역이 포함된 이력서
+      required:
+      - date_awarded
+      - id
+      - issuer
+      - resume
+      - title
+    ResumeCareer:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        order:
+          type: integer
+          readOnly: true
+        company_name:
+          type: string
+          title: 회사명
+          maxLength: 100
+        experience_type:
+          allOf:
+          - $ref: '#/components/schemas/ExperienceTypeEnum'
+          title: 신입/경력
+        is_attending:
+          type: boolean
+          title: 재직중 여부
+        start_date:
+          type: string
+          format: date
+          title: 입사일
+        end_date:
+          type: string
+          format: date
+          nullable: true
+          title: 퇴사일
+        department:
+          type: string
+          title: 부서
+          maxLength: 100
+        responsibilities:
+          type: string
+          title: 직위/직책
+        task:
+          type: string
+          title: 담당 업무
+        reason_for_leaving:
+          type: string
+          title: 퇴사 사유
+          maxLength: 255
+        resume:
+          type: integer
+          readOnly: true
+          description: 경력 사항이 포함된 이력서
+      required:
+      - company_name
+      - experience_type
+      - id
+      - order
+      - resume
+      - start_date
+    ResumeEducation:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        order:
+          type: integer
+          readOnly: true
+        school_type:
+          allOf:
+          - $ref: '#/components/schemas/SchoolTypeEnum'
+          title: 학교 종류
+        school_name:
+          type: string
+          title: 학교명
+          maxLength: 100
+        major:
+          type: string
+          nullable: true
+          title: 전공명
+          maxLength: 100
+        degree:
+          nullable: true
+          title: 학위
+          oneOf:
+          - $ref: '#/components/schemas/DegreeEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        status:
+          allOf:
+          - $ref: '#/components/schemas/Status76bEnum'
+          title: 재학 여부
+        admission_date:
+          type: string
+          format: date
+          title: 입학일 (YYYY-MM)
+        graduation_date:
+          type: string
+          format: date
+          nullable: true
+          title: 졸업일 (YYYY-MM)
+        resume:
+          type: integer
+          readOnly: true
+          description: 학력 사항이 포함된 이력서
+      required:
+      - admission_date
+      - id
+      - order
+      - resume
+      - school_name
+      - school_type
+      - status
+    ResumeLanguage:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        language:
+          type: string
+          description: '언어명 (예: English)'
+          maxLength: 50
+        proficiency:
+          type: string
+          description: '구사 수준 (예: Native, Fluent)'
+          maxLength: 50
+        resume:
+          type: integer
+          readOnly: true
+          description: 외국어 능력이 포함된 이력서
+      required:
+      - id
+      - language
+      - proficiency
+      - resume
+    ResumeLink:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        title:
+          type: string
+          description: '링크 제목 (예: GitHub, 포트폴리오)'
+          maxLength: 100
+        url:
+          type: string
+          format: uri
+          description: 링크 주소
+          maxLength: 200
+        resume:
+          type: integer
+          readOnly: true
+          description: 링크가 포함된 이력서
+      required:
+      - id
+      - resume
+      - title
+      - url
+    SchoolTypeEnum:
+      enum:
+      - elementary_school
+      - middle_school
+      - high_school
+      - junior_college
+      - university
+      type: string
+      description: |-
+        * `elementary_school` - 초등학교
+        * `middle_school` - 중학교
+        * `high_school` - 고등학교
+        * `junior_college` - 대학교 (2-3년제)
+        * `university` - 대학교 (4년제)
+    SeverityEnum:
+      enum:
+      - mild
+      - severe
+      type: string
+      description: |-
+        * `mild` - 경증
+        * `severe` - 중증
+    SocialLogin:
+      type: object
+      properties:
+        access_token:
+          type: string
+        code:
+          type: string
+        id_token:
+          type: string
+    SocialUserRegister:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          readOnly: true
+        password:
+          type: string
+          writeOnly: true
+          nullable: true
+        name:
+          type: string
+          maxLength: 100
+        gender:
+          nullable: true
+          oneOf:
+          - $ref: '#/components/schemas/GenderEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        birth:
+          type: string
+          format: date
+          nullable: true
+        phone_number:
+          type: string
+          nullable: true
+          maxLength: 20
+      required:
+      - email
+      - name
+    Status76bEnum:
+      enum:
+      - attending
+      - graduated
+      - completed
+      - dropout
+      type: string
+      description: |-
+        * `attending` - 재학중
+        * `graduated` - 졸업
+        * `completed` - 수료
+        * `dropout` - 중퇴
+    TokenRefresh:
+      type: object
+      properties:
+        access:
+          type: string
+          readOnly: true
+        refresh:
+          type: string
+          writeOnly: true
+      required:
+      - access
+      - refresh
+    UserDetail:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        email:
+          type: string
+          format: email
+          readOnly: true
+        name:
+          type: string
+          maxLength: 100
+        gender:
+          nullable: true
+          oneOf:
+          - $ref: '#/components/schemas/GenderEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        birth:
+          type: string
+          format: date
+          nullable: true
+        phone_number:
+          type: string
+          nullable: true
+          maxLength: 20
+        date_joined:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - date_joined
+      - email
+      - id
+      - name
+    UserRegister:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        password:
+          type: string
+          writeOnly: true
+        name:
+          type: string
+          maxLength: 100
+        gender:
+          nullable: true
+          oneOf:
+          - $ref: '#/components/schemas/GenderEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        birth:
+          type: string
+          format: date
+          nullable: true
+        phone_number:
+          type: string
+          nullable: true
+          maxLength: 20
+      required:
+      - email
+      - name
+      - password
+  securitySchemes:
+    jwtCookieAuth:
+      type: apiKey
+      in: cookie
+      name: access
+    jwtHeaderAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
