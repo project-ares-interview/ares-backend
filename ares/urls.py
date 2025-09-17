@@ -32,4 +32,9 @@ urlpatterns = [
     # [4단계를 위한 URL 패턴들]
     path('calendar/', views.calendar_view, name='calendar'),
     path('add_event/', views.add_event, name='add_event'),
+    
+    # DRF Spectacular URLs
+    path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
+    path("api/schema/swagger-ui/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
+    path("api/schema/redoc/", SpectacularRedocView.as_view(url_name="schema"), name="redoc"),
 ]

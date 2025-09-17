@@ -1,7 +1,7 @@
 # ares/api/views/v1/analyze.py
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework import status
+from rest_framework import status, permissions
 from django.conf import settings
 import pandas as pd
 import numpy as np
@@ -9,12 +9,28 @@ import os
 import random
 from pathlib import Path
 from django.http import JsonResponse
+from drf_spectacular.utils import extend_schema
+from rest_framework import serializers
 
 # New import for the percentile service
 from ares.api.services.percentile_service import percentile_service
 # New import for the AI advisor service
 from ares.api.services.openai_advisor import advisor as ai_advisor
 
+# --- Serializers for drf-spectacular ---
+class AdviceRequestSerializer(serializers.Serializer):
+    analysis_data = serializers.JSONField()
+
+class AdviceResponseSerializer(serializers.Serializer):
+    advice = serializers.CharField()
+
+class PercentileResponseSerializer(serializers.Serializer):
+    percentiles = serializers.DictField(child=serializers.FloatField())
+
+class AnalyzeResponseSerializer(serializers.Serializer):
+    results = serializers.DictField()
+
+# ----------------------------------------
 
 class GenerateAIAdviceView(APIView):
     """
@@ -23,6 +39,11 @@ class GenerateAIAdviceView(APIView):
     authentication_classes = []
     permission_classes = []
 
+    @extend_schema(
+        summary="Generate AI-based Advice",
+        request=AdviceRequestSerializer,
+        responses=AdviceResponseSerializer
+    )
     def post(self, request):
         """
         Generates advice based on the provided analysis data.
@@ -52,6 +73,11 @@ class PercentileAnalysisView(APIView):
     authentication_classes = []
     permission_classes = []
 
+    @extend_schema(
+        summary="Calculate Percentiles",
+        description="Calculates percentiles for given scores based on query parameters.",
+        responses=PercentileResponseSerializer
+    )
     def get(self, request):
         """
         Calculates percentiles for given scores based on query parameters.
@@ -204,6 +230,11 @@ class AnalyzeView(APIView):
     authentication_classes = []
     permission_classes = []
 
+    @extend_schema(
+        summary="Perform Score Analysis (Dummy Data)",
+        description="Performs a score analysis using dummy data.",
+        responses=AnalyzeResponseSerializer
+    )
     def get(self, request):
         """점수 분석 수행"""
         try:

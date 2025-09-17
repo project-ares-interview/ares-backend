@@ -1,148 +1,78 @@
 # ares/api/serializers/v1/interview.py
 from __future__ import annotations
 from rest_framework import serializers
-
+from drf_spectacular.utils import extend_schema_serializer, OpenApiExample
 
 # ===== 공통 =====
 class MetaIn(serializers.Serializer):
     company = serializers.CharField(required=False, allow_blank=True, default="")
-    name = serializers.CharField(required=False, allow_blank=True, default="") # Added
+    name = serializers.CharField(required=False, allow_blank=True, default="")
     division = serializers.CharField(required=False, allow_blank=True, default="")
     role = serializers.CharField(required=False, allow_blank=True, default="")
-    job_title = serializers.CharField(required=False, allow_blank=True, default="") # Added
+    job_title = serializers.CharField(required=False, allow_blank=True, default="")
     skills = serializers.ListField(child=serializers.CharField(), required=False, default=list)
     jd_kpis = serializers.ListField(child=serializers.CharField(), required=False, default=list)
 
-
-# ===== 내부 유틸: 난이도/언어 정규화 =====
-_DIFFICULTY_MAP = {
-    "쉬움": "easy",
-    "보통": "normal",
-    "어려움": "hard",
-    "medium": "normal",  # 혼동 방지용
-}
-def _norm_difficulty(v: str) -> str:
-    v = (v or "normal").strip().lower()
-    return _DIFFICULTY_MAP.get(v, v)
-
-def _norm_language(v: str) -> str:
-    v = (v or "ko").strip().lower()
-    return "en" if v == "en" else "ko"
-
-
 # ===== Start =====
 class InterviewStartIn(serializers.Serializer):
-    # ✅ 필수 + 빈문자열 불가(요구사항 유지)
     jd_context = serializers.CharField(required=True, allow_blank=False, trim_whitespace=True)
     resume_context = serializers.CharField(required=True, allow_blank=False, trim_whitespace=True)
-
-    # 선택
     research_context = serializers.CharField(required=False, allow_blank=True, default="")
-    research_bias = serializers.BooleanField(required=False, default=True)
-    mode = serializers.ChoiceField(
-        choices=["온디맨드", "프리플랜", "혼합형(추천)"],
-        required=False,
-        default="혼합형(추천)",
-    )
-
-    difficulty = serializers.ChoiceField(
-        choices=["easy", "normal", "hard", "medium", "쉬움", "보통", "어려움"],
-        required=False,
-        default="normal",
-    )
+    difficulty = serializers.ChoiceField(choices=["easy", "normal", "hard"], required=False, default="normal")
     language = serializers.ChoiceField(choices=["ko", "en"], required=False, default="ko")
-
+    interviewer_mode = serializers.ChoiceField(choices=["team_lead", "executive"], required=False, default="team_lead")
     meta = MetaIn(required=False, default=dict)
     ncs_context = serializers.JSONField(required=False, default=dict)
-    ncs_query = serializers.CharField(required=False, allow_blank=True, default="")
-
-    # ---- 방어적 검증(길이/트림/정규화) ----
-    def validate_jd_context(self, v: str) -> str:
-        v = (v or "").strip()
-        if len(v) < 20:
-            raise serializers.ValidationError("JD 텍스트는 최소 20자 이상 입력하세요.")
-        return v
-
-    def validate_resume_context(self, v: str) -> str:
-        v = (v or "").strip()
-        if len(v) < 20:
-            raise serializers.ValidationError("이력서/경험 요약은 최소 20자 이상 입력하세요.")
-        return v
-
-    def validate_difficulty(self, v: str) -> str:
-        return _norm_difficulty(v)
-
-    def validate_language(self, v: str) -> str:
-        return _norm_language(v)
-
 
 class InterviewStartOut(serializers.Serializer):
     message = serializers.CharField()
     question = serializers.CharField()
     session_id = serializers.UUIDField()
     turn_index = serializers.IntegerField()
-    # NCS 컨텍스트 포함 (뷰에서 session.context 반환)
     context = serializers.JSONField(required=False)
-    # 🔹 프런트 동기화를 위해 노출(뷰에서 이미 세션에 저장함)
     language = serializers.CharField(required=False, default="ko")
     difficulty = serializers.CharField(required=False, default="normal")
+    interviewer_mode = serializers.CharField(required=False, default="team_lead")
 
-
-# ===== Next (세션 기반 + 구버전 호환) =====
+# ===== Next =====
 class InterviewNextIn(serializers.Serializer):
-    # 세션 기반 권장
-    session_id = serializers.UUIDField(required=False)
+    session_id = serializers.UUIDField(required=True)
 
-    # 구버전 호환 필드
-    context = serializers.CharField(required=False, allow_blank=True, default="")
-    prev_questions = serializers.ListField(child=serializers.CharField(), required=False, default=list)
-
-    # 한/영 난이도 + language
-    difficulty = serializers.ChoiceField(
-        choices=["easy", "normal", "hard", "medium", "쉬움", "보통", "어려움"],
-        required=False,
-        default="normal",
-    )
-    language = serializers.ChoiceField(choices=["ko", "en"], required=False, default="ko")
-
-    meta = serializers.DictField(required=False, default=dict)
-    ncs_query = serializers.CharField(required=False, allow_blank=True, default="")
-
-    def validate_difficulty(self, v: str) -> str:
-        return _norm_difficulty(v)
-
-    def validate_language(self, v: str) -> str:
-        return _norm_language(v)
-
-
+@extend_schema_serializer(
+    examples=[
+        OpenApiExample(
+            'Next Question',
+            value={
+                "session_id": "a1b2c3d4-e5f6-7890-1234-567890abcdef",
+                "turn_index": 2,
+                "question": "Tell me about a time you handled a difficult stakeholder.",
+                "done": False,
+            },
+            response_only=True,
+        ),
+        OpenApiExample(
+            'Interview Finished',
+            value={
+                "session_id": "a1b2c3d4-e5f6-7890-1234-567890abcdef",
+                "turn_index": None,
+                "question": None,
+                "done": True,
+            },
+            response_only=True,
+        ),
+    ]
+)
 class InterviewNextOut(serializers.Serializer):
-    # 변경: 메인질문이 아닌 꼬리질문 세트 반환
-    followups = serializers.ListField(child=serializers.CharField())
-    session_id = serializers.UUIDField(required=False)
-    turn_index = serializers.IntegerField(required=False)
-
+    session_id = serializers.UUIDField()
+    turn_index = serializers.IntegerField(allow_null=True)
+    question = serializers.CharField(allow_null=True)
+    done = serializers.BooleanField()
 
 # ===== Answer =====
 class InterviewAnswerIn(serializers.Serializer):
-    # 세션 기반
-    session_id = serializers.UUIDField(required=False)
-    turn_index = serializers.IntegerField(required=False)  # 직전 interviewer 질문 index
-
-    # 구버전 호환 필드
-    context = serializers.CharField(required=False, allow_blank=True, default="")
-    meta = serializers.DictField(required=False, default=dict)
-
-    # 공통
-    question = serializers.CharField(required=False, allow_blank=True, default="")
+    session_id = serializers.UUIDField(required=True)
+    question = serializers.CharField(required=True)
     answer = serializers.CharField(required=True, allow_blank=False, trim_whitespace=True)
-
-    # 언어/난이도
-    language = serializers.ChoiceField(choices=["ko", "en"], required=False, default="ko")
-    difficulty = serializers.ChoiceField(
-        choices=["easy", "normal", "hard", "medium", "쉬움", "보통", "어려움"],
-        required=False,
-        default="normal",
-    )
 
     def validate_answer(self, v: str) -> str:
         v = (v or "").strip()
@@ -150,41 +80,40 @@ class InterviewAnswerIn(serializers.Serializer):
             raise serializers.ValidationError("답변은 최소 5자 이상 입력하세요.")
         return v
 
-    def validate_difficulty(self, v: str) -> str:
-        return _norm_difficulty(v)
-
-    def validate_language(self, v: str) -> str:
-        return _norm_language(v)
-
+class InterviewAnswerAnalysis(serializers.Serializer):
+    structured = serializers.DictField()
+    rag_analysis = serializers.DictField()
 
 class InterviewAnswerOut(serializers.Serializer):
-    ok = serializers.BooleanField(default=True)
-    session_id = serializers.UUIDField()
-    turn_index = serializers.IntegerField()
-    
-    # Analysis results from the new bot
-    selected_framework_answerer = serializers.ListField(child=serializers.CharField(), required=False)
-    star_analysis = serializers.DictField(required=False, allow_null=True)
-    base_analysis = serializers.DictField(required=False, allow_null=True)
-    case_analysis = serializers.DictField(required=False, allow_null=True)
-    system_analysis = serializers.DictField(required=False, allow_null=True)
-    scores = serializers.DictField(required=False, allow_null=True)
-    scoring_reason = serializers.CharField(required=False, allow_blank=True, allow_null=True)
-    strengths = serializers.ListField(child=serializers.CharField(), required=False)
-    improvements = serializers.ListField(child=serializers.CharField(), required=False)
-    feedback = serializers.CharField(required=False, allow_blank=True, allow_null=True)
-    model_answer = serializers.CharField(required=False, allow_blank=True, allow_null=True)
-    model_answer_framework = serializers.CharField(required=False, allow_blank=True, allow_null=True)
-
+    analysis = InterviewAnswerAnalysis()
+    followups_buffered = serializers.ListField(child=serializers.CharField())
+    message = serializers.CharField()
 
 # ===== Finish =====
 class InterviewFinishIn(serializers.Serializer):
-    session_id = serializers.UUIDField(required=False)  # 세션 기반 권장
-    # 구버전 호환
-    context = serializers.CharField(required=False, allow_blank=True, default="")
-    meta = serializers.DictField(required=False, default=dict)
-
+    session_id = serializers.UUIDField(required=True)
 
 class InterviewFinishOut(serializers.Serializer):
     report_id = serializers.CharField()
     status = serializers.CharField()
+
+# ===== Report =====
+class InterviewReportOut(serializers.Serializer):
+    overall_summary = serializers.CharField()
+    interview_flow_rationale = serializers.CharField()
+    strengths_matrix = serializers.ListField(child=serializers.DictField())
+    weaknesses_matrix = serializers.ListField(child=serializers.DictField())
+    score_aggregation = serializers.DictField()
+    missed_opportunities = serializers.ListField(child=serializers.CharField())
+    potential_followups_global = serializers.ListField(child=serializers.CharField())
+    resume_feedback = serializers.DictField()
+    hiring_recommendation = serializers.ChoiceField(choices=["strong_hire", "hire", "no_hire"])
+    next_actions = serializers.ListField(child=serializers.CharField())
+    question_by_question_feedback = serializers.ListField(child=serializers.DictField())
+
+# ===== Find Companies =====
+class FindCompaniesRequestSerializer(serializers.Serializer):
+    keyword = serializers.CharField()
+
+class FindCompaniesResponseSerializer(serializers.Serializer):
+    companies = serializers.ListField(child=serializers.CharField())

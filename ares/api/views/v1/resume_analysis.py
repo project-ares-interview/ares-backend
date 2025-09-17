@@ -4,9 +4,14 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status, permissions
 from rest_framework.parsers import MultiPartParser, JSONParser
+from drf_spectacular.utils import extend_schema
 
 # Serializers
-from ares.api.serializers.v1.resume_analysis import ResumeAnalysisInSerializer, CompanyDataSerializer
+from ares.api.serializers.v1.resume_analysis import (
+    ResumeAnalysisInSerializer,
+    CompanyDataSerializer,
+    ResumeAnalysisOutSerializer,
+)
 
 # Services
 from ares.api.services import ocr_service, resume_service
@@ -151,6 +156,16 @@ class ResumeAnalysisAPIView(APIView):
             print(f"[warn] LLM refinement failed for {context_type}: {e}. Returning raw text.")
             return raw_text
 
+    @extend_schema(
+        summary="Analyze Resume against Job Description",
+        description="""
+Takes a resume, a job description (JD), and optional company research material.
+It performs a detailed analysis of the resume's fit for the job, providing scores and feedback.
+The input can be either text or file uploads.
+""",
+        request=ResumeAnalysisInSerializer,
+        responses=ResumeAnalysisOutSerializer
+    )
     def post(self, request, *args, **kwargs):
         serializer = ResumeAnalysisInSerializer(data=request.data)
         if not serializer.is_valid():

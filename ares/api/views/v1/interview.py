@@ -15,6 +15,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from unidecode import unidecode
 
+from drf_spectacular.utils import extend_schema, OpenApiExample
+
 # Serializers
 from ares.api.serializers.v1.interview import (
     InterviewStartIn,
@@ -22,8 +24,12 @@ from ares.api.serializers.v1.interview import (
     InterviewNextIn,
     InterviewNextOut,
     InterviewAnswerIn,
+    InterviewAnswerOut,
     InterviewFinishIn,
     InterviewFinishOut,
+    InterviewReportOut,
+    FindCompaniesRequestSerializer,  # Add this
+    FindCompaniesResponseSerializer, # Add this
 )
 
 # Services and Utils
@@ -167,6 +173,7 @@ class FindCompaniesView(APIView):
     """키워드로 계열사 목록을 검색하는 API"""
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(summary="Find Affiliate Companies", request=FindCompaniesRequestSerializer, responses=FindCompaniesResponseSerializer)
     def post(self, request, *args, **kwargs):
         keyword = (request.data or {}).get("keyword", "")
         if not keyword:
@@ -179,6 +186,29 @@ class InterviewStartAPIView(APIView):
     authentication_classes: list = []
     permission_classes = [permissions.AllowAny]
 
+    @extend_schema(
+        summary="Start a New Interview Session",
+        description="Creates a new interview session based on the provided context and returns the first question.",
+        request=InterviewStartIn,
+        responses=InterviewStartOut,  # Corrected this line
+        examples=[
+            OpenApiExample(
+                'Success',
+                value={
+                    "message": "Interview session started successfully.",
+                    "question": "Can you tell me about a challenging project you worked on?",
+                    "session_id": "a1b2c3d4-e5f6-7890-1234-567890abcdef",
+                    "turn_index": 0,
+                    "context": {},
+                    "language": "ko",
+                    "difficulty": "normal",
+                    "interviewer_mode": "team_lead"
+                },
+                response_only=True,
+                status_codes=['201']
+            )
+        ]
+    )
     def post(self, request, *args, **kwargs):
         rid = _reqid()
         try:
@@ -315,14 +345,15 @@ class InterviewStartAPIView(APIView):
 
 
 class InterviewSubmitAnswerAPIView(APIView):
-    """
-    - 후보자 답변을 저장
-    - 분석 수행 (구조화 + RAG)
-    - follow-up 후보 리스트 생성 후 세션 FSM에 '적재만' (커서 이동 없음)
-    """
     authentication_classes: list = []
     permission_classes = [permissions.AllowAny]
 
+    @extend_schema(
+        summary="Submit an Answer",
+        description="Submits a candidate's answer to a question, triggers analysis, and buffers potential follow-up questions.",
+        request=InterviewAnswerIn,
+        responses=InterviewAnswerOut
+    )
     def post(self, request, *args, **kwargs):
         rid = _reqid()
         s = InterviewAnswerIn(data=request.data)
@@ -426,15 +457,15 @@ class InterviewSubmitAnswerAPIView(APIView):
 
 
 class InterviewNextQuestionAPIView(APIView):
-    """
-    - FSM에 기반해 다음 질문을 결정
-      1) pending_followups가 남아있고 followup_idx < 상한 → 해당 꼬리질문 반환
-      2) 아니면 메인 플랜 다음 문항으로 커서 이동하여 질문 반환
-      3) 전부 소진되면 done:true
-    """
     authentication_classes: list = []
     permission_classes = [permissions.AllowAny]
 
+    @extend_schema(
+        summary="Get Next Question",
+        description="Based on the interview's state machine (FSM), determines and returns the next question. This could be a follow-up or the next main question from the plan.",
+        request=InterviewNextIn,
+        responses=InterviewNextOut
+    )
     def post(self, request, *args, **kwargs):
         rid = _reqid()
         s = InterviewNextIn(data=request.data)
@@ -525,13 +556,15 @@ class InterviewNextQuestionAPIView(APIView):
 
 
 class InterviewFinishAPIView(APIView):
-    """
-    - 세션 종료 처리
-    - 리포트 즉시 생성 → 세션 meta["final_report"]에 저장, report_id/finished_at 세팅
-    """
     authentication_classes: list = []
     permission_classes = [permissions.AllowAny]
 
+    @extend_schema(
+        summary="Finish an Interview Session",
+        description="Ends the session, generates the final report, and stores it.",
+        request=InterviewFinishIn,
+        responses=InterviewFinishOut
+    )
     def post(self, request, *args, **kwargs):
         rid = _reqid()
         s = InterviewFinishIn(data=request.data)
@@ -629,14 +662,14 @@ class InterviewFinishAPIView(APIView):
 
 
 class InterviewReportAPIView(APIView):
-    """
-    - 세션별 리포트 반환
-    - 이미 meta["final_report"]가 있으면 그것을 반환
-    - 없으면 온디맨드 생성 후 저장
-    """
     authentication_classes: list = []
     permission_classes = [permissions.AllowAny]
 
+    @extend_schema(
+        summary="Get Interview Report",
+        description="Retrieves the final report for a given session ID. If the report is not already generated, it will be created on-demand.",
+        responses=InterviewReportOut
+    )
     def get(self, request, session_id: uuid.UUID, *args, **kwargs):
         rid = _reqid()
         try:
