@@ -4,11 +4,11 @@ from rest_framework.response import Response
 from django.shortcuts import render, redirect
 from django.urls import reverse
 from django.contrib.auth.decorators import login_required
+from django.contrib.auth import login, get_user_model
 from ares.api.models.calendar import GoogleAuthToken
 import os
 import datetime
 from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 
@@ -56,7 +56,6 @@ def get_google_creds(request):
         return None
 
 
-@login_required
 def authorize(request):
     """사용자를 Google 인증 페이지로 보냅니다."""
     flow = Flow.from_client_config(client_config=get_client_config(), scopes=SCOPES)
@@ -68,9 +67,8 @@ def authorize(request):
     return redirect(authorization_url)
 
 
-@login_required
 def oauth2callback(request):
-    """Google에서 돌아온 사용자의 토큰을 DB에 저장합니다."""
+    """Google에서 돌아온 사용자의 토큰을 DB에 저장하고 Django에 로그인합니다."""
     state = request.session.pop("state", "")
     flow = Flow.from_client_config(
         client_config=get_client_config(), scopes=SCOPES, state=state
@@ -81,12 +79,34 @@ def oauth2callback(request):
     flow.fetch_token(authorization_response=authorization_response)
     creds = flow.credentials
 
-    GoogleAuthToken.from_credentials(request.user, creds)
+    # Google 사용자 정보 조회 후 사용자 생성/로그인
+    try:
+        userinfo_service = build("oauth2", "v2", credentials=creds)
+        user_info = userinfo_service.userinfo().get().execute()
+        email = user_info.get("email")
+        display_name = user_info.get("name") or email
+        if not email:
+            return redirect("/")
+
+        User = get_user_model()
+        user, _ = User.objects.get_or_create(
+            email=email, defaults={"username": email, "name": display_name}
+        )
+        login(request, user)
+        GoogleAuthToken.from_credentials(user, creds)
+    except Exception:
+        # 사용자 정보 조회 실패 시에도 최소한 토큰만 저장 시도 (로그인 필요)
+        if request.user and request.user.is_authenticated:
+            GoogleAuthToken.from_credentials(request.user, creds)
+
     return redirect("calendar")
 
 
-@login_required
 def calendar_view(request):
+    # 비로그인 사용자는 곧바로 Google 인증으로 보냄
+    if not request.user.is_authenticated:
+        return redirect("authorize")
+
     creds = get_google_creds(request)
     if not creds:
         return redirect("authorize")
