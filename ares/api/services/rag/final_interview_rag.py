@@ -2,15 +2,15 @@
 from __future__ import annotations
 
 """
-변경 요약 (수정본)
-- [Fix] prompt.py의 SYSTEM_RULES에서 {answer} 제거(기존 KeyError 원인 제거)
-- [Refactor] RAG 회사 정보 조회를 _get_company_business_info() 헬퍼로 분리
-- [Robustness] 모든 프롬프트 값 주입을 .format() -> .replace()로 통일
-- [Consistency] 오류 반환 형식을 {"error": "..."}로 표준화
-- [Pipeline] Identifier/Extractor/Scorer에 [지원자 답변 원문] 주입
-- [I/O] _chat_json(): response_format JSON 모드 + 미지원 폴백
-- [Follow-up] 결핍 힌트/원질문/원답변 컨텍스트 포함
-- [Hardening] 입력 길이 제한(_truncate), Lucene 예약문자 이스케이프 등 방어코드
+RAG Interview Bot (Detailed Final Report Edition)
+
+핵심 변경점
+- [Init] __init__(..., sync_on_init=False) 추가: 초기 인덱스 동기화 on/off 제어
+- [Cache] 회사/직무 사업 요약 캐시(self._bizinfo_cache)
+- [Follow-up] 대화 요약에 follow-up Q/A 포함
+- [Report] generate_detailed_final_report(): 배치(문항 도시에) → 종합(오버뷰) 멀티-패스
+- [Compat] 기존 generate_final_report()도 유지(레거시), 출력 클린업 추가
+- [Robust] 프롬프트 주입은 .replace() 일원화, 방어 로직/트렁케이션 유지
 """
 
 import json
@@ -26,18 +26,16 @@ from django.conf import settings
 from .new_azure_rag_llamaindex import AzureBlobRAGSystem
 # 웹 검색 도구
 from .tool_code import google_search
-# 프롬프트 (갱신본)
+# 프롬프트 (기존 세트)
 from ares.api.services.prompt import (
     INTERVIEWER_PERSONAS,
     DIFFICULTY_INSTRUCTIONS,
-    # 설계/비교/서술형 RAG
     prompt_interview_designer,
     prompt_resume_analyzer,
     prompt_rag_answer_analysis,
     prompt_rag_json_correction,
     prompt_rag_follow_up_question,
     prompt_rag_final_report,
-    # 구조화 채점 파이프라인
     prompt_identifier,
     prompt_extractor,
     prompt_scorer,
@@ -51,7 +49,138 @@ from ares.api.utils.ai_utils import safe_extract_json
 import unicodedata
 
 
-# ----------------------------- 유틸 -----------------------------
+# ============================ 내부 상세 리포트 프롬프트 ============================
+_DETAILED_SECTION_PROMPT = """
+You are a rigorous interview auditor. Return ONLY valid JSON.
+
+[Goal]
+For each Q/A below, produce a detailed dossier including:
+- question_intent: why this was asked in this role/company context
+- model_answer: an exemplary, structured answer (400~800 chars, framework tagged)
+- user_answer_structure: framework extraction and missing elements
+- scoring: main/ext scores (0~5 style, integers), rationale, red/green flags
+- coaching: strengths, improvements, next steps (actionable)
+- additional_followups: 3 precise follow-up questions not asked yet
+- fact_checks: claim-by-claim verdicts with brief rationale
+- ncs_alignment: relevant NCS titles (if any) and how they map
+- risk_notes: any hiring risks signaled by the answer
+
+[Context]
+- company: {company_name}
+- role: {job_title}
+- persona: {persona_description}
+- evaluation_focus: {evaluation_focus}
+- business_info: {business_info}
+- ncs_titles: {ncs_titles}
+
+[InputItems]
+{items}
+
+[Output JSON Schema]
+{
+  "per_question_dossiers": [
+    {
+      "question_id": "1-1",
+      "question": "...",
+      "question_intent": "...",
+      "model_answer": "...",
+      "user_answer_structure": {
+        "framework": "STAR|CASE|SYSTEMDESIGN|COMPETENCY|OTHER",
+        "elements_present": ["..."],
+        "elements_missing": ["..."]
+      },
+      "scoring": {
+        "applied_framework": "STAR",
+        "scores_main": {"clarity": 0, "depth": 0, "evidence": 0, "relevance": 0},
+        "scores_ext": {"leadership": 0, "communication": 0, "metrics": 0},
+        "scoring_reason": "..."
+      },
+      "coaching": {
+        "strengths": ["..."],
+        "improvements": ["..."],
+        "next_steps": ["..."]
+      },
+      "additional_followups": ["Q1","Q2","Q3"],
+      "fact_checks": [{"claim":"...","verdict":"지원|불충분|반박","rationale":"..."}],
+      "ncs_alignment": ["..."],
+      "risk_notes": ["..."]
+    }
+  ]
+}
+"""
+
+_DETAILED_OVERVIEW_PROMPT = """
+You are a head interviewer producing a FINAL exhaustive interview report. Return ONLY valid JSON.
+
+[Goal]
+Merge per-question dossiers, the interview plan, resume feedback, and transcript to produce:
+- overall_summary (2~4 paragraphs)
+- interview_flow_rationale: why this sequence made sense; what was tested each stage
+- strengths_matrix: thematic clusters with evidence refs (question_ids)
+- weaknesses_matrix: same as above, with risk severity
+- score_aggregation: averages, spread, calibration notes
+- missed_opportunities: what strong answers were expected but missing
+- potential_followups_global: 5-10 best follow-ups not yet asked
+- resume_feedback (verbatim or summarized if too long)
+- hiring_recommendation: "strong_hire|hire|no_hire" with explicit reasons
+- next_actions: concrete steps before offer/no-offer (e.g., reference checks, take-home)
+- question_by_question_feedback: per-question cards (intent/model answer/followups)
+
+[Context]
+- company: {company_name}
+- role: {job_title}
+- persona: {persona_description}
+- final_report_goal: {final_report_goal}
+- evaluation_focus: {evaluation_focus}
+
+[Inputs]
+- interview_plan: {interview_plan_json}
+- resume_feedback_analysis: {resume_feedback_json}
+- transcript_digest: {transcript_digest}
+- per_question_dossiers: {per_question_dossiers}
+
+[Output JSON Schema]
+{
+  "overall_summary": "...",
+  "interview_flow_rationale": "...",
+  "strengths_matrix": [{"theme":"...","evidence":["1-2","2-1"]}],
+  "weaknesses_matrix": [{"theme":"...","severity":"low|medium|high","evidence":["..."]}],
+  "score_aggregation": {
+    "main_avg": {},
+    "ext_avg": {},
+    "calibration": "..."
+  },
+  "missed_opportunities": ["..."],
+  "potential_followups_global": ["..."],
+  "resume_feedback": {
+    "job_fit_assessment": "...",
+    "strengths_and_opportunities": "...",
+    "gaps_and_improvements": "..."
+  },
+  "hiring_recommendation": "strong_hire|hire|no_hire",
+  "next_actions": ["..."],
+  "question_by_question_feedback": [
+    {
+      "question_id": "1-1",
+      "stage": "...",
+      "objective": "...",
+      "question": "...",
+      "question_intent": "...",
+      "evaluation": {
+        "applied_framework": "STAR",
+        "scores_main": {},
+        "scores_ext": {},
+        "feedback": "..."
+      },
+      "model_answer": "...",
+      "additional_followups": ["..."]
+    }
+  ]
+}
+"""
+
+
+# ================================ 유틸리티 ================================
 def _escape_special_chars(text: str) -> str:
     """Azure AI Search/Lucene 예약문자 이스케이프"""
     pattern = r'([+\-&|!(){}\[\]^"~*?:\\])'
@@ -73,10 +202,7 @@ def _truncate(s: str, limit: int, tail: str = "…(truncated)") -> str:
 
 
 def _extract_from_korean_schema(plan_data: Any) -> List[Dict]:
-    """
-    한글 스키마 -> 표준 스키마로 변환
-    표준: list[{stage, objective?, questions:[...]}]
-    """
+    """한글 스키마 -> 표준 스키마로 변환: list[{stage, objective?, questions:[...]}]"""
     if not isinstance(plan_data, (dict, list)):
         return []
 
@@ -96,7 +222,6 @@ def _extract_from_korean_schema(plan_data: Any) -> List[Dict]:
 
         objective = (stage_block.get("목표") or stage_block.get("목 적") or "").strip() or None
 
-        # 질문 키 후보: '질문' / '핵심 질문' / '문항' / 'questions'
         q_keys = ("질문", "핵심 질문", "문항", "questions")
         qs_raw = None
         for k in q_keys:
@@ -163,9 +288,7 @@ def _force_json_like(raw: str) -> dict | list | None:
     """마크다운/설명문 섞인 응답에서 가장 바깥쪽 JSON 블록을 강제로 추출."""
     if not raw:
         return None
-    # 코드펜스 제거
     raw2 = re.sub(r"^```(?:json)?|```$", "", raw.strip(), flags=re.MULTILINE)
-    # 첫 { ... } 또는 [ ... ] 블록 시도
     for open_ch, close_ch in [("{", "}"), ("[", "]")]:
         start = raw2.find(open_ch)
         end = raw2.rfind(close_ch)
@@ -179,21 +302,19 @@ def _force_json_like(raw: str) -> dict | list | None:
 
 
 def _normalize_plan_local(plan_data: Any) -> List[Dict]:
-    """
-    다양한 변형 스키마를 표준 list[{stage, objective?, questions:[...]}] 로 정규화.
-    """
+    """다양한 변형 스키마를 표준 list[{stage, objective?, questions:[...]}] 로 정규화."""
     if not plan_data:
         return []
 
     if isinstance(plan_data, str):
         plan_data = safe_extract_json(plan_data, default=None) or _force_json_like(plan_data) or {}
 
-    # 1) 한국어 스키마 먼저 시도
+    # 1) 한국어 스키마
     ko_norm = _extract_from_korean_schema(plan_data)
     if ko_norm:
         return ko_norm
 
-    # 2) 영문/일반 스키마
+    # 2) 일반/영문
     candidate = (
         plan_data.get("plan")
         if isinstance(plan_data, dict) and "plan" in plan_data
@@ -235,9 +356,20 @@ def _normalize_plan_local(plan_data: Any) -> List[Dict]:
     return norm
 
 
-# ----------------------------- Bot -----------------------------
+def _chunked(iterable, size):
+    buf = []
+    for x in iterable:
+        buf.append(x)
+        if len(buf) >= size:
+            yield buf
+            buf = []
+    if buf:
+        yield buf
+
+
+# ================================ 본체 ================================
 class RAGInterviewBot:
-    """RAG + LLM 기반 구조화 면접 Bot (하드닝 버전)"""
+    """RAG + LLM 기반 구조화 면접 Bot (상세 리포트 확장판)"""
 
     def __init__(
         self,
@@ -251,6 +383,8 @@ class RAGInterviewBot:
         jd_context: str = "",
         resume_context: str = "",
         research_context: str = "",
+        *,
+        sync_on_init: bool = False,   # 🔹 초기 인덱스 동기화 on/off
         **kwargs,
     ):
         print(f"🤖 RAG 전용 사업 분석 면접 시스템 초기화 (면접관: {interviewer_mode})...")
@@ -277,7 +411,6 @@ class RAGInterviewBot:
             or getattr(settings, "AZURE_OPENAI_DEPLOYMENT", None)
             or "gpt-4o"
         )
-
         if not self.endpoint or not self.api_key:
             raise ValueError("Azure OpenAI endpoint/key is not set in Django settings.")
 
@@ -290,6 +423,8 @@ class RAGInterviewBot:
         print("\n📊 Azure 사업 분석 RAG 시스템 연동...")
         self.rag_system = None
         self.rag_ready = False
+        self._bizinfo_cache: Dict[str, str] = {}  # 🔹 회사/직무별 요약 캐시
+
         try:
             self.rag_system = AzureBlobRAGSystem(container_name=container_name, index_name=index_name)
             blobs = list(self.rag_system.container_client.list_blobs())
@@ -298,8 +433,12 @@ class RAGInterviewBot:
                 return
 
             print(f"✅ Azure RAG 시스템 준비 완료. {len(blobs)}개의 문서를 기반으로 합니다.")
-            print("🔄 Azure AI Search 인덱스 자동 동기화 시작...")
-            self.rag_system.sync_index(company_name_filter=self.company_name)
+            if sync_on_init:
+                print("🔄 Azure AI Search 인덱스 자동 동기화 시작...(sync_on_init=True)")
+                self.rag_system.sync_index(company_name_filter=self.company_name)
+            else:
+                print("⏩ 인덱스 동기화 생략(sync_on_init=False) — 필요 시 외부 엔드포인트/관리자에서 수행")
+
             self.rag_ready = True
 
         except Exception as e:
@@ -307,21 +446,16 @@ class RAGInterviewBot:
 
     # ----------------------------- 내부 LLM 호출 -----------------------------
     def _chat_json(self, prompt: str, temperature: float = 0.2, max_tokens: int = 2000) -> str:
-        """
-        JSON 전용 응답을 강제. (가능하면 response_format 사용)
-        - 일부 API 버전/배포에서는 response_format이 미지원이므로 폴백 재시도 포함
-        """
+        """JSON 전용 응답 강제(미지원시 폴백 재시도)"""
         sys_msg = {"role": "system", "content": "You must return ONLY a single valid JSON object. No markdown/code fences/commentary."}
         messages = [sys_msg, {"role": "user", "content": prompt}]
         kwargs = dict(model=self.model, messages=messages, temperature=temperature, max_tokens=max_tokens)
 
-        # 1st try: response_format 사용
         try:
             kwargs["response_format"] = {"type": "json_object"}
             resp = self.client.chat.completions.create(**kwargs)
             return (resp.choices[0].message.content or "").strip()
         except Exception:
-            # 2nd try: response_format 제거
             resp = self.client.chat.completions.create(
                 model=self.model,
                 messages=[sys_msg, {"role": "user", "content": prompt + "\n\nReturn ONLY valid JSON."}],
@@ -341,16 +475,22 @@ class RAGInterviewBot:
 
     # ----------------------------- [신규] RAG 헬퍼 -----------------------------
     def _get_company_business_info(self) -> str:
-        """RAG 시스템에서 회사/직무 관련 핵심 정보를 조회하고 요약합니다."""
+        """RAG에서 회사/직무 핵심 정보 조회 요약(인스턴스 캐시)."""
         if not self.rag_ready:
             return ""
         try:
+            cache_key = f"{self.company_name}::{self.job_title}"
+            if cache_key in self._bizinfo_cache:
+                return self._bizinfo_cache[cache_key]
+
             safe_company_name = _escape_special_chars(self.company_name)
             safe_job_title = _escape_special_chars(self.job_title)
             query_text = f"{safe_company_name}의 핵심 사업, 최근 실적, 주요 리스크, 그리고 {safe_job_title} 직무와 관련된 회사 정보에 대해 요약해줘."
             print(f"🔍 '{self.rag_system.index_name}' 인덱스에서 회사 정보 조회: {query_text}")
             business_info_raw = self.rag_system.query(query_text)
-            return _truncate(business_info_raw or "", 1200)
+            summary = _truncate(business_info_raw or "", 1200)
+            self._bizinfo_cache[cache_key] = summary
+            return summary
         except Exception as e:
             print(f"⚠️ 회사 정보 조회 실패: {e}")
             return ""
@@ -364,7 +504,7 @@ class RAGInterviewBot:
         try:
             business_info = self._get_company_business_info()
 
-            # NCS 요약
+            # NCS 요약 문자열
             ncs_info = ""
             if isinstance(self.ncs_context.get("ncs"), list):
                 ncs_titles = [item.get("title") for item in self.ncs_context["ncs"] if item.get("title")]
@@ -388,12 +528,11 @@ class RAGInterviewBot:
                 .replace("{ncs_info}", _truncate(ncs_info, 400))
             )
 
-            # 1차 시도: JSON 강제
             raw = self._chat_json(prompt, temperature=0.3, max_tokens=3200)
             parsed = safe_extract_json(raw) or _force_json_like(raw) or {}
             normalized = _normalize_plan_local(parsed)
 
-            # 2차: JSON 교정
+            # 교정 패스
             if not normalized:
                 _debug_print_raw_json("PLAN_FIRST_PASS", raw)
                 correction_raw = self.client.chat.completions.create(
@@ -413,9 +552,9 @@ class RAGInterviewBot:
                 if not normalized:
                     _debug_print_raw_json("PLAN_CORRECTION_FAILED", correction_raw)
 
-            # 3차: 폴백 — 오프닝 한 문장
+            # 폴백: 오프닝 1문장
             if not normalized:
-                print("ℹ️ 플랜 정규화 결과가 비어 단건 오프닝 질문으로 최소 플랜 구성.")
+                print("ℹ️ 플랜 정규화 실패 → 오프닝 최소 플랜 구성.")
                 single = self.generate_opening_question(
                     company_name=self.company_name,
                     job_title=self.job_title,
@@ -501,9 +640,7 @@ class RAGInterviewBot:
 
     # ----------------------------- 구조화 평가 파이프라인 -----------------------------
     def _structured_evaluation(self, role: str, answer: str) -> Dict:
-        """
-        Identifier -> Extractor -> Scorer -> ScoreExplainer -> Coach -> ModelAnswer -> BiasChecker
-        """
+        """Identifier → Extractor → Scorer → ScoreExplainer → Coach → ModelAnswer → BiasChecker"""
         try:
             # 1) Identifier
             id_prompt = prompt_identifier.replace("{answer}", _truncate(answer, 1800))
@@ -512,17 +649,13 @@ class RAGInterviewBot:
             frameworks: List[str] = id_json.get("frameworks", []) if isinstance(id_json, dict) else []
             values_summary = id_json.get("company_values_summary", "")
 
-            # 프레임워크 베이스/확장 태그
+            # 기본 프레임워크 추정
             base_fw = None
-            has_ext = {"C": False, "L": False, "M": False}
             for fw in frameworks:
-                if not isinstance(fw, str):
-                    continue
-                base = fw.split("+")[0].upper().strip()
-                base_fw = base_fw or base
-                for tag in ("C", "L", "M"):
-                    if f"+{tag}" in fw.upper():
-                        has_ext[tag] = True
+                if isinstance(fw, str):
+                    base_fw = (fw.split("+")[0] or "").upper().strip()
+                    if base_fw:
+                        break
             if not base_fw:
                 base_fw = "STAR"
 
@@ -632,7 +765,7 @@ class RAGInterviewBot:
             return {"error": "RAG 시스템 미준비"}
 
         try:
-            # 웹 결과 (베스트 에포트)
+            # 웹 결과 (best effort)
             try:
                 web_result = google_search.search(queries=[f"{self.company_name} {answer}"])
                 if not isinstance(web_result, str):
@@ -690,19 +823,11 @@ class RAGInterviewBot:
 
     # ----------------------------- 공개 메서드: 답변 분석 -----------------------------
     def analyze_answer_with_rag(self, question: str, answer: str, role: Optional[str] = None) -> Dict:
-        """
-        구조화 평가 + RAG 서술형 평가를 통합 반환한다.
-        """
         role = role or self.job_title
         print(f"    (답변 분석 중... 면접관: {self.interviewer_mode})")
-
         structured = self._structured_evaluation(role=role, answer=answer)
         rag_analysis = self._rag_narrative_analysis(question=question, answer=answer)
-
-        return {
-            "structured": structured,
-            "rag_analysis": rag_analysis,
-        }
+        return {"structured": structured, "rag_analysis": rag_analysis}
 
     # ----------------------------- 출력 포매터 (CLI) -----------------------------
     def print_individual_analysis(self, analysis: Dict, question_num: str):
@@ -714,7 +839,7 @@ class RAGInterviewBot:
         print(f"📊 [{question_num}] 답변 상세 분석 결과")
         print("=" * 70)
 
-        # --- RAG Narrative ---
+        # RAG Narrative
         rag = analysis.get("rag_analysis", {})
         print("\n" + "-" * 30)
         print("✅ 주장별 사실 확인 (RAG - Fact-Checking)")
@@ -739,12 +864,9 @@ class RAGInterviewBot:
         print("\n" + "-" * 30)
         print("💡 실행 가능한 피드백 (RAG - Actionable)")
         fb = (rag or {}).get("feedback", "")
-        if fb:
-            print(f"  - {fb}")
-        else:
-            print("  - 피드백 없음")
+        print(f"  - {fb or '피드백 없음'}")
 
-        # --- Structured ---
+        # Structured
         st = analysis.get("structured", {})
         print("\n" + "-" * 30)
         print("📐 구조화 채점 요약 (Structured Scoring)")
@@ -807,16 +929,13 @@ class RAGInterviewBot:
 
         resume_analysis = self.analyze_resume_with_rag()
         interview_plan_data = self.design_interview_plan()
-
         if "error" in interview_plan_data:
             print(f"\n❌ {interview_plan_data['error']}")
             return
-
         plan = interview_plan_data.get("interview_plan")
         if not plan:
             print("\n❌ 면접 계획을 수립하지 못했습니다.")
             return
-
         interview_plan = plan
 
         print("\n" + "=" * 70)
@@ -882,6 +1001,18 @@ class RAGInterviewBot:
             self._generate_and_print_reports(interview_transcript, interview_plan_data, resume_analysis)
 
     # ----------------------------- 리포트 생성/출력 -----------------------------
+    def _cleanup_assessments(self, report: Dict) -> Dict:
+        """assessment 필드 꼬리 콤마 등 간단 정리."""
+        try:
+            comps = report.get("core_competency_analysis", [])
+            for c in comps:
+                a = c.get("assessment")
+                if isinstance(a, str):
+                    c["assessment"] = a.replace(",", "").strip()
+        except Exception:
+            pass
+        return report
+
     def _generate_and_print_reports(self, transcript, plan_data, resume_analysis):
         print("\n\n" + "#" * 70)
         print(" 면접 전체 답변에 대한 상세 분석 리포트")
@@ -890,24 +1021,151 @@ class RAGInterviewBot:
         for item in transcript:
             self.print_individual_analysis(item["analysis"], item["question_id"])
 
-        report = self.generate_final_report(transcript, plan_data, resume_analysis)
+        # 멀티-패스 상세 리포트 생성
+        report = self.generate_detailed_final_report(
+            transcript=transcript,
+            interview_plan=plan_data,
+            resume_feedback_analysis=resume_analysis,
+            batch_size=4,
+            max_transcript_digest_chars=7000
+        )
         self.print_final_report(report)
 
-    def generate_final_report(self, transcript: List[Dict], interview_plan: Dict, resume_feedback_analysis: Dict) -> Dict:
-        print("\n\n" + "#" * 70)
-        print(f" 최종 역량 분석 종합 리포트 생성 중... (면접관: {self.interviewer_mode})")
-        print("#" * 70)
+    def generate_detailed_final_report(
+        self,
+        transcript: List[Dict],
+        interview_plan: Dict,
+        resume_feedback_analysis: Dict,
+        batch_size: int = 4,
+        max_transcript_digest_chars: int = 6000,
+    ) -> Dict:
+        """문항 배치 도시에 → 오버뷰 종합 패스(원하던 수준의 리치 리포트)."""
+        if not transcript:
+            return {"error": "empty_transcript"}
 
+        persona_desc = self.persona["persona_description"].replace("{company_name}", self.company_name).replace("{job_title}", self.job_title)
+        business_info = self._get_company_business_info()
+        ncs_titles = []
+        if isinstance(self.ncs_context.get("ncs"), list):
+            ncs_titles = [it.get("title") for it in self.ncs_context["ncs"] if it.get("title")]
+
+        # transcript digest (follow-up 포함, 길이 상향)
+        digest_lines = []
+        for item in transcript:
+            qid = item.get("question_id", "N/A")
+            stage = item.get("stage", "N/A")
+            obj = item.get("objective", "")
+            rag_analysis = (item.get("analysis") or {}).get("rag_analysis", {})
+            analysis_line = rag_analysis.get("analysis") or ""
+            if not analysis_line:
+                stc = (item.get("analysis") or {}).get("structured", {}).get("scoring", {})
+                analysis_line = stc.get("scoring_reason", "")
+            digest_lines.append(
+                f"[{stage}] {qid} Q: {item.get('question','')}\n"
+                f"  A: {_truncate(item.get('answer',''), 500)}\n"
+                f"  Σ: {_truncate(analysis_line or '없음', 600)}"
+            )
+            if item.get("follow_up_question"):
+                digest_lines.append(
+                    f"  FU-Q: {item['follow_up_question']}\n"
+                    f"  FU-A: {_truncate(item.get('follow_up_answer',''), 320)}"
+                )
+            if obj:
+                digest_lines.append(f"  ▶Objective: {obj}")
+            digest_lines.append("---")
+        transcript_digest = _truncate("\n".join(digest_lines), max_transcript_digest_chars)
+
+        # per-question dossiers — 배치 생성
+        per_question_dossiers: List[Dict] = []
+        for batch in _chunked(transcript, batch_size):
+            items_blob = []
+            for it in batch:
+                items_blob.append({
+                    "question_id": it.get("question_id", ""),
+                    "stage": it.get("stage", ""),
+                    "objective": it.get("objective", ""),
+                    "question": it.get("question", ""),
+                    "user_answer": _truncate(it.get("answer", ""), 1800),
+                    "analysis_hint": {
+                        "structured": it.get("analysis", {}).get("structured", {}),
+                        "rag": it.get("analysis", {}).get("rag_analysis", {})
+                    },
+                    "follow_up_asked": it.get("follow_up_question") or "",
+                    "follow_up_answer": _truncate(it.get("follow_up_answer", ""), 800)
+                })
+            prompt = _DETAILED_SECTION_PROMPT \
+                .replace("{company_name}", self.company_name) \
+                .replace("{job_title}", self.job_title) \
+                .replace("{persona_description}", persona_desc) \
+                .replace("{evaluation_focus}", self.persona["evaluation_focus"]) \
+                .replace("{business_info}", _truncate(business_info, 1000)) \
+                .replace("{ncs_titles}", _truncate(", ".join(ncs_titles), 500)) \
+                .replace("{items}", json.dumps(items_blob, ensure_ascii=False))
+
+            raw = self._chat_json(prompt, temperature=0.2, max_tokens=3800)
+            part = safe_extract_json(raw) or _force_json_like(raw) or {}
+            part_list = part.get("per_question_dossiers", []) if isinstance(part, dict) else []
+            if not isinstance(part_list, list):
+                part_list = []
+            per_question_dossiers.extend(part_list)
+
+        # 오버뷰 종합
+        overview_prompt = _DETAILED_OVERVIEW_PROMPT \
+            .replace("{company_name}", self.company_name) \
+            .replace("{job_title}", self.job_title) \
+            .replace("{persona_description}", persona_desc) \
+            .replace("{final_report_goal}", self.persona["final_report_goal"]) \
+            .replace("{evaluation_focus}", self.persona["evaluation_focus"]) \
+            .replace("{interview_plan_json}", _truncate(json.dumps(interview_plan, ensure_ascii=False), 6000)) \
+            .replace("{resume_feedback_json}", _truncate(json.dumps(resume_feedback_analysis, ensure_ascii=False), 6000)) \
+            .replace("{transcript_digest}", transcript_digest) \
+            .replace("{per_question_dossiers}", json.dumps(per_question_dossiers, ensure_ascii=False))
+
+        raw_final = self._chat_json(overview_prompt, temperature=0.25, max_tokens=4000)
+        final = safe_extract_json(raw_final) or _force_json_like(raw_final) or {}
+
+        # 클린업
+        try:
+            qitems = final.get("question_by_question_feedback", [])
+            for qi in qitems:
+                ev = qi.get("evaluation", {})
+                if isinstance(ev, dict):
+                    reason = ev.get("feedback") or ev.get("scoring_reason") or ""
+                    if isinstance(reason, str):
+                        ev["feedback"] = reason.strip()
+        except Exception:
+            pass
+
+        return {
+            "overall_summary": final.get("overall_summary", ""),
+            "interview_flow_rationale": final.get("interview_flow_rationale", ""),
+            "strengths_matrix": final.get("strengths_matrix", []),
+            "weaknesses_matrix": final.get("weaknesses_matrix", []),
+            "score_aggregation": final.get("score_aggregation", {}),
+            "missed_opportunities": final.get("missed_opportunities", []),
+            "potential_followups_global": final.get("potential_followups_global", []),
+            "resume_feedback": final.get("resume_feedback", resume_feedback_analysis),
+            "hiring_recommendation": final.get("hiring_recommendation", ""),
+            "next_actions": final.get("next_actions", []),
+            "question_by_question_feedback": final.get("question_by_question_feedback", []),
+            # 레거시 호환 키
+            "assessment_of_plan_achievement": final.get("interview_flow_rationale", ""),
+            "core_competency_analysis": [],
+            "growth_potential": "",
+        }
+
+    # ----------------------------- 레거시(옵션) -----------------------------
+    def generate_final_report(self, transcript: List[Dict], interview_plan: Dict, resume_feedback_analysis: Dict) -> Dict:
+        """레거시 단일 패스 리포트(유지). 긴 요약/팔로업 포함 + 클린업."""
+        print("\n\n" + "#" * 70)
+        print(f" 최종 역량 분석 종합 리포트(레거시) 생성 중... (면접관: {self.interviewer_mode})")
+        print("#" * 70)
         try:
             conversation_summary = ""
             for item in transcript:
                 q_id = item.get("question_id", "N/A")
-
-                # 1) RAG 분석 요약 우선
                 rag_analysis = (item.get("analysis") or {}).get("rag_analysis", {})
                 analysis_line = rag_analysis.get("analysis", "")
-
-                # 2) 없으면 구조화 평가의 채점 사유 사용
                 if not analysis_line:
                     structured_analysis = (item.get("analysis") or {}).get("structured", {})
                     scoring_info = structured_analysis.get("scoring", {})
@@ -915,9 +1173,15 @@ class RAGInterviewBot:
 
                 conversation_summary += (
                     f"질문 {q_id} ({item.get('stage', 'N/A')}): {item.get('question', '')}\n"
-                    f"답변 {q_id}: {_truncate(item.get('answer', ''), 200)}\n"
-                    f"(개별 분석 요약: {_truncate(analysis_line or '분석 요약 없음', 300)})\n---\n"
+                    f"답변 {q_id}: {_truncate(item.get('answer', ''), 400)}\n"
+                    f"(개별 분석 요약: {_truncate(analysis_line or '분석 요약 없음', 600)})\n"
                 )
+                if item.get("follow_up_question"):
+                    conversation_summary += (
+                        f"(꼬리) 질문 {q_id}: {item['follow_up_question']}\n"
+                        f"(꼬리) 답변 {q_id}: {_truncate(item.get('follow_up_answer',''), 300)}\n"
+                    )
+                conversation_summary += "---\n"
 
             persona_desc = self.persona["persona_description"].replace("{company_name}", self.company_name).replace("{job_title}", self.job_title)
             report_prompt = (
@@ -926,17 +1190,18 @@ class RAGInterviewBot:
                 .replace("{final_report_goal}", self.persona["final_report_goal"])
                 .replace("{company_name}", self.company_name)
                 .replace("{job_title}", self.job_title)
-                .replace("{conversation_summary}", _truncate(conversation_summary, 3800))
-                .replace("{interview_plan}", _truncate(json.dumps(interview_plan, ensure_ascii=False), 3800))
-                .replace("{resume_feedback_analysis}", _truncate(json.dumps(resume_feedback_analysis, ensure_ascii=False), 3800))
+                .replace("{conversation_summary}", _truncate(conversation_summary, 5500))
+                .replace("{interview_plan}", _truncate(json.dumps(interview_plan, ensure_ascii=False), 4200))
+                .replace("{resume_feedback_analysis}", _truncate(json.dumps(resume_feedback_analysis, ensure_ascii=False), 4200))
             )
 
             raw = self._chat_json(report_prompt, temperature=0.3, max_tokens=4000)
             report_data = safe_extract_json(raw) or {}
+            report_data = self._cleanup_assessments(report_data)
             return report_data
 
         except Exception as e:
-            print(f"❌ 최종 리포트 생성 중 오류 발생: {e}")
+            print(f"❌ 최종 리포트(레거시) 생성 중 오류: {e}")
             traceback.print_exc()
             return {"error": f"final_report_failed: {e}"}
 
@@ -948,19 +1213,27 @@ class RAGInterviewBot:
         print(f"🏅 {self.company_name} {self.job_title} 지원자 최종 역량 분석 종합 리포트 (관점: {self.interviewer_mode})")
         print("=" * 70)
 
-        print("\n■ 면접 계획 달성도 평가\n" + "-" * 50)
-        print(report.get("assessment_of_plan_achievement", "평가 정보 없음."))
+        print("\n■ 면접 계획 달성도/흐름 근거\n" + "-" * 50)
+        print(report.get("assessment_of_plan_achievement", report.get("interview_flow_rationale", "평가 정보 없음.")))
 
         print("\n■ 총평 (Overall Summary)\n" + "-" * 50)
         print(report.get("overall_summary", "요약 정보 없음."))
 
-        print("\n■ 핵심 역량 분석 (Core Competency Analysis)\n" + "-" * 50)
-        for comp in report.get("core_competency_analysis", []):
-            print(f"  - {comp.get('competency', 'N/A')}: **{comp.get('assessment', 'N/A')}**")
-            print(f"    - 근거: {comp.get('evidence', 'N/A')}")
+        strengths = report.get("strengths_matrix", [])
+        weaknesses = report.get("weaknesses_matrix", [])
+        if strengths:
+            print("\n■ 강점 매트릭스\n" + "-" * 50)
+            for s in strengths:
+                print(f"  - {s.get('theme','N/A')} :: evidence={s.get('evidence',[])}")
+        if weaknesses:
+            print("\n■ 약점 매트릭스\n" + "-" * 50)
+            for w in weaknesses:
+                print(f"  - {w.get('theme','N/A')} (sev={w.get('severity','N/A')}) :: evidence={w.get('evidence',[])}")
 
-        print("\n■ 성장 가능성 (Growth Potential)\n" + "-" * 50)
-        print(f"  {report.get('growth_potential', 'N/A')}")
+        agg = report.get("score_aggregation", {})
+        if agg:
+            print("\n■ 점수 집계/캘리브레이션\n" + "-" * 50)
+            print(json.dumps(agg, ensure_ascii=False))
 
         if "resume_feedback" in report:
             print("\n■ 이력서 피드백 (Resume Feedback)\n" + "-" * 50)
@@ -975,20 +1248,28 @@ class RAGInterviewBot:
         if "question_by_question_feedback" in report:
             print("\n■ 질문별 상세 피드백 (Question-by-Question Feedback)\n" + "-" * 50)
             for item in report.get("question_by_question_feedback", []):
-                print(f"  - 질문: {item.get('question', 'N/A')}")
+                print(f"  - 질문ID: {item.get('question_id','-')} / 질문: {item.get('question', 'N/A')}")
+                if item.get("stage"): print(f"    - 단계: {item.get('stage')}")
+                if item.get("objective"): print(f"    - 목표: {item.get('objective')}")
                 print(f"    - 질문 의도: {item.get('question_intent', 'N/A')}")
                 evaluation = item.get("evaluation", {})
                 if isinstance(evaluation, dict):
-                    print(f"    - 적용된 프레임워크: {evaluation.get('applied_framework', 'N/A')}")
+                    print(f"    - 적용 프레임워크: {evaluation.get('applied_framework', 'N/A')}")
+                    if evaluation.get("scores_main"): print(f"    - Main: {evaluation.get('scores_main')}")
+                    if evaluation.get("scores_ext"): print(f"    - Ext : {evaluation.get('scores_ext')}")
                     print(f"    - 피드백: {evaluation.get('feedback', 'N/A')}")
                 else:
                     print(f"    - 피드백: {evaluation}")
+                if item.get("model_answer"):
+                    print("    - 모범답변: " + _truncate(item.get("model_answer",""), 600))
+                if item.get("additional_followups"):
+                    print(f"    - 추가 꼬리질문: {item.get('additional_followups')}")
                 print("    " + "-" * 20)
 
         print("\n" + "=" * 70)
 
 
-# ----------------------------- CLI 진입점 -----------------------------
+# ============================== CLI 진입점 ==============================
 def main():
     try:
         target_container = "interview-data"
@@ -1013,7 +1294,8 @@ def main():
             container_name=target_container,
             index_name=index_name,
             difficulty=difficulty,
-            interviewer_mode=interviewer_mode
+            interviewer_mode=interviewer_mode,
+            sync_on_init=False,  # 기본값: 초기 동기화 비활성
         )
         bot.conduct_interview()
 
