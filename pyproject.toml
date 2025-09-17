@@ -48,6 +48,8 @@ dependencies = [
     "unidecode",
     "pymupdf",
     "matplotlib>=3.10.6",
+    "ddgs>=9.5.5",
+    "charset-normalizer>=3.4.3",
 ]
 
 [tool.ruff]
