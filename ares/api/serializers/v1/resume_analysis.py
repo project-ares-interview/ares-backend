@@ -8,7 +8,7 @@ class CompanyDataSerializer(serializers.Serializer):
     job_title = serializers.CharField(max_length=100)
     location = serializers.CharField(max_length=100, required=False, allow_blank=True)
     kpi = serializers.ListField(child=serializers.CharField(max_length=100), required=False, default=list)
-    requirements = serializers.ListField(child=serializers.CharField(max_length=100), required=False, default=list)
+    requirements = serializers.ListField(child=serializers.CharField(max_length=500), required=False, default=list)
 
 
 class ResumeAnalysisInSerializer(serializers.Serializer):
