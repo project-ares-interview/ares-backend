@@ -18,17 +18,10 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path, include
 from .views import HealthCheckView
-from . import views
 
 urlpatterns = [
     path("accounts/", include("allauth.urls")),
     path("admin/", admin.site.urls),
     path("api/", include("ares.api.urls")),
     path("health", HealthCheckView.as_view(), name="health_check"),
-    path('authorize/', views.authorize, name='authorize'),
-    path('oauth2callback/', views.oauth2callback, name='oauth2callback'),
-    
-    # [4단계를 위한 URL 패턴들]
-    path('calendar/', views.calendar_view, name='calendar'),
-    path('add_event/', views.add_event, name='add_event'),
 ]
