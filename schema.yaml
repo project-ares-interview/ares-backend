@@ -3840,8 +3840,7 @@ components:
           type: string
         research_text:
           type: string
-        company:
-          type: string
+        company: {}
       required:
       - company
     ResumeAnalysisOut:

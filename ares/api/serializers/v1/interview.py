@@ -5,8 +5,8 @@ from drf_spectacular.utils import extend_schema_serializer, OpenApiExample
 
 # ===== 공통 =====
 class MetaIn(serializers.Serializer):
-    company = serializers.CharField(required=False, allow_blank=True, default="")
-    name = serializers.CharField(required=False, allow_blank=True, default="")
+    company_name = serializers.CharField(required=False, allow_blank=True, default="")
+    person_name = serializers.CharField(required=False, allow_blank=True, default="")
     division = serializers.CharField(required=False, allow_blank=True, default="")
     role = serializers.CharField(required=False, allow_blank=True, default="")
     job_title = serializers.CharField(required=False, allow_blank=True, default="")
@@ -32,11 +32,12 @@ class InterviewStartOut(serializers.Serializer):
     context = serializers.JSONField(required=False)
     language = serializers.CharField(required=False, default="ko")
     difficulty = serializers.CharField(required=False, default="normal")
-    interviewer_mode = serializers.CharField(required=False, default="team_lead")
+    interviewer_mode = serializers.CharField(required=False, default="team_lead")  # ✅ 뷰와 일치
 
 # ===== Next =====
 class InterviewNextIn(serializers.Serializer):
     session_id = serializers.UUIDField(required=True)
+    include_followups = serializers.BooleanField(required=False, default=True)
 
 @extend_schema_serializer(
     examples=[
@@ -46,6 +47,7 @@ class InterviewNextIn(serializers.Serializer):
                 "session_id": "a1b2c3d4-e5f6-7890-1234-567890abcdef",
                 "turn_index": 2,
                 "question": "Tell me about a time you handled a difficult stakeholder.",
+                "followups": [],              # ✅ 뷰 응답과 동일
                 "done": False,
             },
             response_only=True,
@@ -56,6 +58,7 @@ class InterviewNextIn(serializers.Serializer):
                 "session_id": "a1b2c3d4-e5f6-7890-1234-567890abcdef",
                 "turn_index": None,
                 "question": None,
+                "followups": [],
                 "done": True,
             },
             response_only=True,
@@ -66,6 +69,7 @@ class InterviewNextOut(serializers.Serializer):
     session_id = serializers.UUIDField()
     turn_index = serializers.IntegerField(allow_null=True)
     question = serializers.CharField(allow_null=True)
+    followups = serializers.ListField(child=serializers.CharField(), required=False, default=list)  # ✅ 추가
     done = serializers.BooleanField()
 
 # ===== Answer =====
@@ -80,12 +84,8 @@ class InterviewAnswerIn(serializers.Serializer):
             raise serializers.ValidationError("답변은 최소 5자 이상 입력하세요.")
         return v
 
-class InterviewAnswerAnalysis(serializers.Serializer):
-    structured = serializers.DictField()
-    rag_analysis = serializers.DictField()
-
 class InterviewAnswerOut(serializers.Serializer):
-    analysis = InterviewAnswerAnalysis()
+    analysis = serializers.DictField()  # ✅ 뷰에서 dict 그대로 반환하므로 유연화
     followups_buffered = serializers.ListField(child=serializers.CharField())
     message = serializers.CharField()
 

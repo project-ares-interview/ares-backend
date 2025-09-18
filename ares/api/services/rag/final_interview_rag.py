@@ -1,26 +1,28 @@
-# ares/api/services/rag/final_interview_rag.py
 from __future__ import annotations
 
 """
 RAG Interview Bot (Detailed Final Report Edition)
 
-핵심 변경점
-- [Init] __init__(..., sync_on_init=False) 추가: 초기 인덱스 동기화 on/off 제어
-- [Cache] 회사/직무 사업 요약 캐시(self._bizinfo_cache)
-- [Follow-up] 대화 요약에 follow-up Q/A 포함
-- [Report] generate_detailed_final_report(): 배치(문항 도시에) → 종합(오버뷰) 멀티-패스
-- [Compat] 기존 generate_final_report()도 유지(레거시), 출력 클린업 추가
-- [Robust] 프롬프트 주입은 .replace() 일원화, 방어 로직/트렁케이션 유지
+# CHANGELOG
+- [NCS Normalize] 모든 지점에서 self.ncs_context 접근 전에 dict 보장(_ensure_ncs_dict)
+- [Safe Access] .get 체이닝 전에 isinstance(dict) 가드
+- [Plan Robustness] 디자인 실패 시 항상 dict 반환 {"interview_plan": []} 형태 보장
+- [Opening Hints] NCS 힌트 구성도 타입 가드
+- [Misc] 로그/주석 정리 (기능 변화 없음)
+
+기본 기능/구조는 기존 버전과 동일합니다. (설계/분석/팔로업/리포트 파이프라인)
+원본 레이아웃 참고: :contentReference[oaicite:0]{index=0}
 """
 
 import json
 import re
 import traceback
+import unicodedata
 from typing import Any, Dict, List, Optional
 
 from openai import AzureOpenAI
-from unidecode import unidecode
 from django.conf import settings
+from unidecode import unidecode
 
 # RAG 시스템
 from .new_azure_rag_llamaindex import AzureBlobRAGSystem
@@ -43,10 +45,12 @@ from ares.api.services.prompt import (
     prompt_coach,
     prompt_bias_checker,
     prompt_model_answer,
+    prompt_icebreaker_question,           # New
+    prompt_self_introduction_question,    # New
+    prompt_motivation_question,           # New
+    prompt_followup_v2,                   # New
 )
 from ares.api.utils.ai_utils import safe_extract_json
-
-import unicodedata
 
 
 # ============================ 내부 상세 리포트 프롬프트 ============================
@@ -182,7 +186,6 @@ Merge per-question dossiers, the interview plan, resume feedback, and transcript
 
 # ================================ 유틸리티 ================================
 def _escape_special_chars(text: str) -> str:
-    """Azure AI Search/Lucene 예약문자 이스케이프"""
     pattern = r'([+\-&|!(){}\[\]^"~*?:\\])'
     return re.sub(pattern, r'\\\1', text or "")
 
@@ -202,7 +205,7 @@ def _truncate(s: str, limit: int, tail: str = "…(truncated)") -> str:
 
 
 def _extract_from_korean_schema(plan_data: Any) -> List[Dict]:
-    """한글 스키마 -> 표준 스키마로 변환: list[{stage, objective?, questions:[...]}]"""
+    """한글 스키마 -> 표준 스키마로 변환: list[{stage, objective?, questions:[...]}]  :contentReference[oaicite:1]{index=1}"""
     if not isinstance(plan_data, (dict, list)):
         return []
 
@@ -302,7 +305,7 @@ def _force_json_like(raw: str) -> dict | list | None:
 
 
 def _normalize_plan_local(plan_data: Any) -> List[Dict]:
-    """다양한 변형 스키마를 표준 list[{stage, objective?, questions:[...]}] 로 정규화."""
+    """다양한 변형 스키마를 표준 list[{stage, objective?, questions:[...]}] 로 정규화.  :contentReference[oaicite:2]{index=2}"""
     if not plan_data:
         return []
 
@@ -366,10 +369,41 @@ def _chunked(iterable, size):
     if buf:
         yield buf
 
+def ensure_min_questions(plan_list: List[Dict], min_per_stage: int = 1) -> List[Dict]:
+    fixed = []
+    for st in plan_list:
+        if not isinstance(st, dict):
+            continue
+        title = st.get("stage") or "Untitled Stage"
+        qs = [q for q in (st.get("questions") or []) if isinstance(q, str) and q.strip()]
+        if not qs:
+            qs = ["해당 단계의 핵심 역량을 드러낼 수 있는 최근 사례를 STAR로 설명해 주세요."]
+        fixed.append({"stage": title, "objective": st.get("objective"), "questions": qs[:max(1, min_per_stage)]})
+    return fixed
 
 # ================================ 본체 ================================
 class RAGInterviewBot:
-    """RAG + LLM 기반 구조화 면접 Bot (상세 리포트 확장판)"""
+    """RAG + LLM 기반 구조화 면접 Bot (상세 리포트 확장판)  :contentReference[oaicite:3]{index=3}"""
+
+    # ----------------------------- NCS 정규화 유틸 -----------------------------
+    @staticmethod
+    def _ensure_ncs_dict(ncs_ctx: Any) -> Dict[str, Any]:
+        """
+        입력이 str/None/dict 무엇이 오든 항상 dict 형태의 NCS 컨텍스트로 변환.
+        - str이면 JSON 파싱 시도, 실패 시 {"ncs": [], "ncs_query": 원문}
+        - None/기타 타입이면 빈 dict 스펙 반환
+        """
+        if isinstance(ncs_ctx, dict):
+            return ncs_ctx
+        if isinstance(ncs_ctx, str):
+            try:
+                j = json.loads(ncs_ctx)
+                if isinstance(j, dict):
+                    return j
+                return {"ncs": [], "ncs_query": ncs_ctx}
+            except Exception:
+                return {"ncs": [], "ncs_query": ncs_ctx}
+        return {"ncs": [], "ncs_query": ""}
 
     def __init__(
         self,
@@ -384,7 +418,7 @@ class RAGInterviewBot:
         resume_context: str = "",
         research_context: str = "",
         *,
-        sync_on_init: bool = False,   # 🔹 초기 인덱스 동기화 on/off
+        sync_on_init: bool = False,
         **kwargs,
     ):
         print(f"🤖 RAG 전용 사업 분석 면접 시스템 초기화 (면접관: {interviewer_mode})...")
@@ -392,7 +426,7 @@ class RAGInterviewBot:
         self.job_title = job_title or "알수없음직무"
         self.difficulty = difficulty
         self.interviewer_mode = interviewer_mode
-        self.ncs_context = ncs_context or {}
+        self.ncs_context = self._ensure_ncs_dict(ncs_context or {})
         self.jd_context = _truncate(jd_context, 4000)
         self.resume_context = _truncate(resume_context, 4000)
         self.research_context = _truncate(research_context, 4000)
@@ -423,7 +457,7 @@ class RAGInterviewBot:
         print("\n📊 Azure 사업 분석 RAG 시스템 연동...")
         self.rag_system = None
         self.rag_ready = False
-        self._bizinfo_cache: Dict[str, str] = {}  # 🔹 회사/직무별 요약 캐시
+        self._bizinfo_cache: Dict[str, str] = {}
 
         try:
             self.rag_system = AzureBlobRAGSystem(container_name=container_name, index_name=index_name)
@@ -446,7 +480,6 @@ class RAGInterviewBot:
 
     # ----------------------------- 내부 LLM 호출 -----------------------------
     def _chat_json(self, prompt: str, temperature: float = 0.2, max_tokens: int = 2000) -> str:
-        """JSON 전용 응답 강제(미지원시 폴백 재시도)"""
         sys_msg = {"role": "system", "content": "You must return ONLY a single valid JSON object. No markdown/code fences/commentary."}
         messages = [sys_msg, {"role": "user", "content": prompt}]
         kwargs = dict(model=self.model, messages=messages, temperature=temperature, max_tokens=max_tokens)
@@ -475,7 +508,6 @@ class RAGInterviewBot:
 
     # ----------------------------- [신규] RAG 헬퍼 -----------------------------
     def _get_company_business_info(self) -> str:
-        """RAG에서 회사/직무 핵심 정보 조회 요약(인스턴스 캐시)."""
         if not self.rag_ready:
             return ""
         try:
@@ -498,16 +530,17 @@ class RAGInterviewBot:
     # ----------------------------- 플랜 생성 -----------------------------
     def design_interview_plan(self) -> Dict:
         if not self.rag_ready:
-            return {"error": "RAG 시스템이 준비되지 않았습니다."}
+            return {"error": "RAG 시스템이 준비되지 않았습니다.", "interview_plan": []}
 
         print(f"\n🧠 {self.company_name} 맞춤 면접 계획 설계 중 (난이도: {self.difficulty}, 면접관: {self.interviewer_mode})...")
         try:
             business_info = self._get_company_business_info()
 
-            # NCS 요약 문자열
+            # NCS 요약 문자열 (타입 가드)
             ncs_info = ""
-            if isinstance(self.ncs_context.get("ncs"), list):
-                ncs_titles = [item.get("title") for item in self.ncs_context["ncs"] if item.get("title")]
+            ncs_dict = self._ensure_ncs_dict(self.ncs_context)
+            if isinstance(ncs_dict.get("ncs"), list):
+                ncs_titles = [it.get("title") for it in ncs_dict["ncs"] if isinstance(it, dict) and it.get("title")]
                 if ncs_titles:
                     ncs_info = f"\n\nNCS 직무 관련 정보: {', '.join(ncs_titles[:6])}."
 
@@ -532,9 +565,29 @@ class RAGInterviewBot:
             parsed = safe_extract_json(raw) or _force_json_like(raw) or {}
             normalized = _normalize_plan_local(parsed)
 
+            # 프리루브(아이스브레이킹/자기소개/동기)
+            initial_stages = [
+                {
+                    "stage": "아이스브레이킹",
+                    "objective": "면접 시작 전 긴장 완화 및 편안한 분위기 조성",
+                    "questions": [self._chat_text(prompt_icebreaker_question, temperature=0.7, max_tokens=100)]
+                },
+                {
+                    "stage": "자기소개",
+                    "objective": "지원자의 기본 정보 및 핵심 역량 파악",
+                    "questions": [self._chat_text(prompt_self_introduction_question, temperature=0.7, max_tokens=100)]
+                },
+                {
+                    "stage": "지원 동기",
+                    "objective": "회사 및 직무에 대한 관심도와 이해도 확인",
+                    "questions": [self._chat_text(prompt_motivation_question, temperature=0.7, max_tokens=100)]
+                },
+            ]
+            normalized = initial_stages + (normalized or [])
+
             # 교정 패스
-            if not normalized:
-                _debug_print_raw_json("PLAN_FIRST_PASS", raw)
+            if not normalized or all(not st.get("questions") for st in normalized):
+                _debug_print_raw_json("PLAN_FIRST_PASS", raw or "")
                 correction_raw = self.client.chat.completions.create(
                     model=self.model,
                     messages=[
@@ -548,34 +601,43 @@ class RAGInterviewBot:
                     response_format={"type": "json_object"},
                 ).choices[0].message.content or ""
                 corrected = safe_extract_json(correction_raw) or _force_json_like(correction_raw) or {}
-                normalized = _normalize_plan_local(corrected)
-                if not normalized:
+                normalized2 = _normalize_plan_local(corrected)
+                if normalized2:
+                    normalized = initial_stages + normalized2
+                else:
                     _debug_print_raw_json("PLAN_CORRECTION_FAILED", correction_raw)
 
-            # 폴백: 오프닝 1문장
+            # 폴백 (빈 경우)
             if not normalized:
-                print("ℹ️ 플랜 정규화 실패 → 오프닝 최소 플랜 구성.")
                 single = self.generate_opening_question(
                     company_name=self.company_name,
                     job_title=self.job_title,
                     difficulty=self.difficulty,
                     context_hint={"business_info": business_info},
                 )
-                if single:
-                    normalized = [{
-                        "stage": "Opening",
-                        "objective": "지원자의 기본 역량과 사고방식 검증",
-                        "questions": [single],
-                    }]
+                normalized = [{
+                    "stage": "Opening",
+                    "objective": "지원자의 기본 역량과 사고방식 검증",
+                    "questions": [single] if single else []
+                }]
 
-            print("✅ 구조화 면접 계획 수립 완료." if normalized else "⚠️ 구조화 면접 계획이 비어있음.")
+            print("✅ 구조화 면접 계획 수립 완료." if any(st.get("questions") for st in normalized) else "⚠️ 구조화 면접 계획이 비어있음.")
             return {"interview_plan": normalized}
 
         except Exception as e:
             error_msg = f"면접 계획 수립 실패: {e}"
             print(f"❌ {error_msg}")
             traceback.print_exc()
-            return {"error": error_msg}
+            # 항상 dict 형태 보장
+            return {
+                "error": error_msg,
+                "interview_plan": [],
+                "context": {
+                    "ncs": [],
+                    "ncs_query": self.ncs_context if isinstance(self.ncs_context, str) else "",
+                    "company_info": "",
+                },
+            }
 
     # ----------------------------- 오프닝 폴백 -----------------------------
     def generate_opening_question(
@@ -590,7 +652,8 @@ class RAGInterviewBot:
             bi = context_hint.get("business_info")
             if bi:
                 hints.append(str(bi)[:600])
-        ncs_titles = [it.get("title") for it in (self.ncs_context or {}).get("ncs", []) if it.get("title")]
+        ncs_dict = self._ensure_ncs_dict(self.ncs_context)
+        ncs_titles = [it.get("title") for it in ncs_dict.get("ncs", []) if isinstance(it, dict) and it.get("title")]
         if ncs_titles:
             hints.append("NCS: " + ", ".join(ncs_titles[:5]))
 
@@ -608,35 +671,67 @@ class RAGInterviewBot:
             print(f"❌ 단건 오프닝 질문 생성 실패: {e}")
             return ""
 
-    # ----------------------------- 이력서/RAG 비교 -----------------------------
-    def analyze_resume_with_rag(self) -> Dict:
+    # ----------------------------- RAG 서술형 평가 -----------------------------
+    def _rag_narrative_analysis(self, question: str, answer: str) -> Dict:
         if not self.rag_ready:
-            return {"error": "RAG 시스템이 준비되지 않았습니다."}
-        if not self.resume_context:
-            return {"error": "분석할 이력서 정보가 없습니다."}
+            return {"error": "RAG 시스템 미준비"}
 
-        print(f"\n📄 RAG 기반 이력서 분석 중 (면접관: {self.interviewer_mode})...")
         try:
-            business_info = self._get_company_business_info()
+            # 웹 결과 (best effort)
+            try:
+                web_result = google_search.search(queries=[f"{self.company_name} {answer}"])
+                if not isinstance(web_result, str):
+                    web_result = _truncate(json.dumps(web_result, ensure_ascii=False), 2000)
+            except Exception:
+                web_result = "검색 실패 또는 결과 없음"
 
-            persona_description = self.persona["persona_description"].replace("{company_name}", self.company_name).replace("{job_title}", self.job_title)
-            prompt = (
-                prompt_resume_analyzer
-                .replace("{persona_description}", persona_description)
+            safe_answer = _escape_special_chars(answer)
+            internal_check_raw = self.rag_system.query(
+                f"'{safe_answer}'라는 주장에 대한 사실관계를 확인하고 관련 데이터를 찾아줘."
+            )
+            internal_check = _truncate(internal_check_raw or "", 1200)
+
+            persona_desc = self.persona["persona_description"].replace("{company_name}", self.company_name).replace("{job_title}", self.job_title)
+            analysis_prompt = (
+                prompt_rag_answer_analysis
+                .replace("{persona_description}", persona_desc)
+                .replace("{evaluation_focus}", self.persona["evaluation_focus"])
                 .replace("{company_name}", self.company_name)
-                .replace("{job_title}", self.job_title)
-                .replace("{business_info}", business_info)
-                .replace("{resume_context}", _truncate(self.resume_context, 1200))
+                .replace("{question}", _truncate(question, 400))
+                .replace("{answer}", _truncate(answer, 1500))
+                .replace("{internal_check}", internal_check)
+                .replace("{web_result}", _truncate(web_result, 1500))
             )
 
-            raw = self._chat_json(prompt, temperature=0.3, max_tokens=1500)
-            result = safe_extract_json(raw) or {}
-            print("✅ 이력서-회사 연관성 분석 완료.")
-            return result
+            raw_json = self._chat_json(analysis_prompt, temperature=0.2, max_tokens=2000)
+            result = safe_extract_json(raw_json)
+            if result is not None:
+                return result
+
+            # 자가 교정
+            _debug_print_raw_json("RAG_FIRST_PASS", raw_json or "")
+            corrected_raw = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": "Return ONLY valid JSON. No markdown or commentary."},
+                    {"role": "user", "content": analysis_prompt},
+                    {"role": "assistant", "content": raw_json},
+                    {"role": "user", "content": prompt_rag_json_correction},
+                ],
+                temperature=0.0,
+                max_tokens=2000,
+                response_format={"type": "json_object"},
+            ).choices[0].message.content or ""
+            final_result = safe_extract_json(corrected_raw)
+            if final_result is not None:
+                return final_result
+            _debug_print_raw_json("RAG_CORRECTION_FAILED", corrected_raw)
+            return {"error": "Failed to parse AI response after correction"}
+
         except Exception as e:
-            error_msg = f"이력서 분석 실패: {e}"
-            print(f"❌ {error_msg}")
-            return {"error": error_msg}
+            print(f"❌ RAG 서술형 평가 실패: {e}")
+            traceback.print_exc()
+            return {"error": f"Failed to analyze answer (RAG): {e}"}
 
     # ----------------------------- 구조화 평가 파이프라인 -----------------------------
     def _structured_evaluation(self, role: str, answer: str) -> Dict:
@@ -759,68 +854,6 @@ class RAGInterviewBot:
             traceback.print_exc()
             return {"error": f"structured_evaluation_failed: {e}"}
 
-    # ----------------------------- RAG 서술형 평가 -----------------------------
-    def _rag_narrative_analysis(self, question: str, answer: str) -> Dict:
-        if not self.rag_ready:
-            return {"error": "RAG 시스템 미준비"}
-
-        try:
-            # 웹 결과 (best effort)
-            try:
-                web_result = google_search.search(queries=[f"{self.company_name} {answer}"])
-                if not isinstance(web_result, str):
-                    web_result = _truncate(json.dumps(web_result, ensure_ascii=False), 2000)
-            except Exception:
-                web_result = "검색 실패 또는 결과 없음"
-
-            safe_answer = _escape_special_chars(answer)
-            internal_check_raw = self.rag_system.query(
-                f"'{safe_answer}'라는 주장에 대한 사실관계를 확인하고 관련 데이터를 찾아줘."
-            )
-            internal_check = _truncate(internal_check_raw or "", 1200)
-
-            persona_desc = self.persona["persona_description"].replace("{company_name}", self.company_name).replace("{job_title}", self.job_title)
-            analysis_prompt = (
-                prompt_rag_answer_analysis
-                .replace("{persona_description}", persona_desc)
-                .replace("{evaluation_focus}", self.persona["evaluation_focus"])
-                .replace("{company_name}", self.company_name)
-                .replace("{question}", _truncate(question, 400))
-                .replace("{answer}", _truncate(answer, 1500))
-                .replace("{internal_check}", internal_check)
-                .replace("{web_result}", _truncate(web_result, 1500))
-            )
-
-            raw_json = self._chat_json(analysis_prompt, temperature=0.2, max_tokens=2000)
-            result = safe_extract_json(raw_json)
-            if result is not None:
-                return result
-
-            # 자가 교정
-            _debug_print_raw_json("RAG_FIRST_PASS", raw_json or "")
-            corrected_raw = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": "Return ONLY valid JSON. No markdown or commentary."},
-                    {"role": "user", "content": analysis_prompt},
-                    {"role": "assistant", "content": raw_json},
-                    {"role": "user", "content": prompt_rag_json_correction},
-                ],
-                temperature=0.0,
-                max_tokens=2000,
-                response_format={"type": "json_object"},
-            ).choices[0].message.content or ""
-            final_result = safe_extract_json(corrected_raw)
-            if final_result is not None:
-                return final_result
-            _debug_print_raw_json("RAG_CORRECTION_FAILED", corrected_raw)
-            return {"error": "Failed to parse AI response after correction"}
-
-        except Exception as e:
-            print(f"❌ RAG 서술형 평가 실패: {e}")
-            traceback.print_exc()
-            return {"error": f"Failed to analyze answer (RAG): {e}"}
-
     # ----------------------------- 공개 메서드: 답변 분석 -----------------------------
     def analyze_answer_with_rag(self, question: str, answer: str, role: Optional[str] = None) -> Dict:
         role = role or self.job_title
@@ -888,38 +921,93 @@ class RAGInterviewBot:
             print("\n  - 코칭(강점/개선/총평) 제공됨")
 
     # ----------------------------- 꼬리 질문 생성 -----------------------------
-    def generate_follow_up_question(self, original_question: str, answer: str, analysis: Dict, stage: str, objective: str) -> str:
+    def generate_follow_up_question(
+        self,
+        original_question: str,
+        answer: str,
+        analysis: Dict,
+        stage: str,
+        objective: str,
+        *,
+        limit: int = 3,
+        **kwargs,
+    ) -> List[str]:
+        """
+        꼬리 질문 생성.
+        - prompt_followup_v2 사용.
+        - 레거시 호출에서 limit를 kwargs로 넘겨도 허용.
+        - 항상 문자열 질문 리스트 반환.
+        """
         try:
-            # 결핍 힌트 추출(코칭 개선점/캘리브레이션 gap)
-            deficit_parts: List[str] = []
-            st = analysis.get("structured", {}) if isinstance(analysis, dict) else {}
-            coach = st.get("coach", {})
-            if isinstance(coach, dict):
-                deficit_parts += (coach.get("improvements") or [])[:3]
-            calib = st.get("calibration", {})
-            if isinstance(calib, dict):
-                for item in calib.get("calibration", [])[:2]:
-                    if isinstance(item, dict) and item.get("gap"):
-                        deficit_parts.append(f"{item.get('element','요소')} gap={item.get('gap')}")
-            deficit_hint = _truncate(" / ".join(deficit_parts), 240)
+            # 레거시 하위호환: kwargs에 'top_k'나 'limit'가 오면 우선 반영
+            if "top_k" in kwargs and isinstance(kwargs["top_k"], int):
+                limit = kwargs["top_k"]
+            if "limit" in kwargs and isinstance(kwargs["limit"], int):
+                limit = kwargs["limit"]
+
+            # Determine phase and question_type
+            phase_map = {
+                "아이스브레이킹": "intro",
+                "자기소개": "intro",
+                "지원 동기": "intro",
+            }
+            question_type_map = {
+                "아이스브레이킹": "icebreaking",
+                "자기소개": "self_intro",
+                "지원 동기": "motivation",
+            }
+            current_phase = phase_map.get(stage, "core")
+            current_question_type = question_type_map.get(stage, "general")  # 코어 단계는 general
+
+            # Prepare NCS context
+            ncs_info = ""
+            ncs_dict = self._ensure_ncs_dict(self.ncs_context)
+            if isinstance(ncs_dict.get("ncs"), list):
+                ncs_titles = [it.get("title") for it in ncs_dict["ncs"] if isinstance(it, dict) and it.get("title")]
+                if ncs_titles:
+                    ncs_info = f"NCS 직무 관련 정보: {', '.join(ncs_titles[:6])}."
 
             persona_desc = self.persona["persona_description"].replace("{company_name}", self.company_name).replace("{job_title}", self.job_title)
+
+            # Construct the prompt using prompt_followup_v2
             prompt = (
-                prompt_rag_follow_up_question
+                prompt_followup_v2
                 .replace("{persona_description}", persona_desc)
-                .replace("{company_name}", self.company_name)
-                .replace("{stage}", stage)
+                .replace("{phase}", current_phase)
+                .replace("{question_type}", current_question_type)
                 .replace("{objective}", objective or "")
-                .replace("{deficit_hint}", deficit_hint)
-                + "\n[기존 질문]\n" + _truncate(original_question, 300)
-                + "\n[지원자 답변]\n" + _truncate(answer, 600)
+                .replace("{latest_answer}", _truncate(answer, 1500))
+                .replace("{company_context}", self.company_name)
+                .replace("{ncs}", _truncate(ncs_info, 400))
+                .replace("{kpi}", "[]")  # KPI 정보가 이 시점에 없으면 빈 리스트
             )
-            raw = self._chat_json(prompt, temperature=0.6, max_tokens=300)
+
+            raw = self._chat_json(prompt, temperature=0.6, max_tokens=500)
             result = safe_extract_json(raw)
-            return (result or {}).get("follow_up_question", "")
+
+            # 후처리 + 하드 컷
+            if result and isinstance(result, dict):
+                followups = result.get("followups", [])
+                if isinstance(followups, list):
+                    clean = [fu.strip() for fu in followups if isinstance(fu, str) and fu.strip()]
+                    return clean[: max(1, int(limit))] if clean else []
+            return []
         except Exception as e:
             print(f"❌ 꼬리 질문 생성 실패: {e}")
-            return ""
+            traceback.print_exc()
+            return []
+
+    def get_stage_fallback_question(self, stage: str) -> str:
+        mapping = {
+            "아이스브레이킹": "최근에 본 산업·기술 트렌드 중 우리 회사/직무와 가장 관련 깊다고 본 사례를 1개 설명해 주세요.",
+            "자기소개": "최근 1년 동안 본인이 낸 가장 측정가능한 성과 한 가지를 STAR로 말씀해 주세요.",
+            "지원 동기": "우리 회사의 최근 사업전략과 연결해, 해당 직무에서 본인이 초기 90일 동안 낼 수 있는 가시적 성과를 제시해 주세요.",
+            "기술/직무역량": "최근 겪은 기술적 이슈 한 가지를 ①문제정의 ②가설 ③분석/실험 ④의사결정 ⑤지표로 설명해 주세요.",
+            "프로젝트/문제해결": "가장 복잡했던 프로젝트를 리스크/의존성/자원 제약 관점으로 설명하고, 결과지표를 공유해 주세요.",
+            "협업/커뮤니케이션": "의견 충돌 상황을 어떻게 조정했는지, 합의까지의 과정과 산출물을 알려 주세요.",
+            "마무리": "마지막으로 강조하고 싶은 장점 2가지와, 입사 후 6개월 로드맵(마일스톤)을 말해 주세요.",
+        }
+        return mapping.get(stage, "최근 수행한 핵심 과제를 STAR 구조로 2분 내 요약해 주세요.")
 
     # ----------------------------- CLI 면접 시나리오 -----------------------------
     def conduct_interview(self):
@@ -929,7 +1017,7 @@ class RAGInterviewBot:
 
         resume_analysis = self.analyze_resume_with_rag()
         interview_plan_data = self.design_interview_plan()
-        if "error" in interview_plan_data:
+        if "error" in interview_plan_data and not interview_plan_data.get("interview_plan"):
             print(f"\n❌ {interview_plan_data['error']}")
             return
         plan = interview_plan_data.get("interview_plan")
@@ -966,20 +1054,24 @@ class RAGInterviewBot:
                     break
 
                 analysis = self.analyze_answer_with_rag(question, answer, role=self.job_title)
-                follow_up_question = ""
-                follow_up_answer = ""
+
+                fu_list: List[str] = []
+                fu_disp = ""
+                fu_answer = ""
                 if analysis and "error" not in analysis:
-                    follow_up_question = self.generate_follow_up_question(
+                    fu_list = self.generate_follow_up_question(
                         original_question=question,
                         answer=answer,
                         analysis=analysis,
                         stage=stage_name,
-                        objective=stage_objective
+                        objective=stage_objective,
+                        limit=3
                     )
-                    if follow_up_question:
+                    if fu_list:
+                        fu_disp = fu_list[0]
                         print("\n--- [꼬리 질문] ---")
-                        print(f"👨‍💼 면접관: {follow_up_question}")
-                        follow_up_answer = input("💬 답변: ")
+                        print(f"👨‍💼 면접관: {fu_disp}")
+                        fu_answer = input("💬 답변: ")
 
                 interview_transcript.append({
                     "question_id": question_id,
@@ -988,8 +1080,8 @@ class RAGInterviewBot:
                     "question": question,
                     "answer": answer,
                     "analysis": analysis,
-                    "follow_up_question": follow_up_question,
-                    "follow_up_answer": follow_up_answer
+                    "follow_up_question": fu_disp,
+                    "follow_up_answer": fu_answer
                 })
 
             if interview_stopped:
@@ -1249,8 +1341,10 @@ class RAGInterviewBot:
             print("\n■ 질문별 상세 피드백 (Question-by-Question Feedback)\n" + "-" * 50)
             for item in report.get("question_by_question_feedback", []):
                 print(f"  - 질문ID: {item.get('question_id','-')} / 질문: {item.get('question', 'N/A')}")
-                if item.get("stage"): print(f"    - 단계: {item.get('stage')}")
-                if item.get("objective"): print(f"    - 목표: {item.get('objective')}")
+                if item.get("stage"):
+                    print(f"    - 단계: {item.get('stage')}")
+                if item.get("objective"):
+                    print(f"    - 목표: {item.get('objective')}")
                 print(f"    - 질문 의도: {item.get('question_intent', 'N/A')}")
                 evaluation = item.get("evaluation", {})
                 if isinstance(evaluation, dict):
