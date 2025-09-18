@@ -11,6 +11,8 @@
 # ============================================================================
 
 from __future__ import annotations
+from typing import Callable, Dict, Any, List
+import random
 
 # -----------------------------------------------------------------------------
 # 공통 시스템 규칙(가드레일)
@@ -93,6 +95,38 @@ SCORE_BOUNDS = {
         "ext": {"challenge": 10, "learning": 10, "metrics": 10},
     },
 }
+
+# -----------------------------------------------------------------------------
+# 난이도 지침 (단일 정의)
+# -----------------------------------------------------------------------------
+DIFFICULTY_INSTRUCTIONS = {
+    "hard": (
+        "- 지원자의 답변에서 논리적 허점이나 약점을 파고드는 비판적 질문 포함.\n"
+        "- 도전 상황(스택 변경/핵심 인력 이탈 등) 가정 후 대응 전략 요구.\n"
+        "- 비용/품질, 속도/안정성 등 상충 가치 간 의사결정 질문.\n"
+        "- [[최신 사업 요약]]의 약점/위협 요소와 지원자 역량을 연결한 압박 질문 포함."
+    ),
+    "normal": (
+        "- 실제 현업 시나리오를 제시하고, 의사결정 근거(데이터/리스크/협업)를 구체적으로 설명하도록 유도.\n"
+        "- 성공/실패 사례 1개씩 비교하여 학습 포인트를 말하게 함.\n"
+        "- 용어 정의와 범위(스코프) 명확화 질문 포함."
+    ),
+    "easy": (
+        "- 기본 개념/프로세스 이해도를 확인하는 평이한 질문 위주.\n"
+        "- 경험 소개를 유도하되, 깊은 압박 질문은 지양.\n"
+        "- 용어/약어 설명 요청, 간단한 예시 상황 질문 포함."
+    ),
+}
+
+# -----------------------------------------------------------------------------
+# 면접 타입/페이즈 enum (서비스 전역 일관성 유지용)
+# -----------------------------------------------------------------------------
+QUESTION_TYPES = [
+    "icebreaking", "self_intro", "motivation",
+    "star", "competency", "case", "system", "hard",
+    "wrapup"
+]
+PHASES = ["intro", "core", "wrapup"]
 
 # -----------------------------------------------------------------------------
 # 기계 1: 태거 (Identifier) - 프레임워크 식별
@@ -282,29 +316,7 @@ prompt_model_answer = (
 )
 
 # -----------------------------------------------------------------------------
-# 난이도 지침
-# -----------------------------------------------------------------------------
-DIFFICULTY_INSTRUCTIONS = {
-    "hard": (
-        "- 지원자의 답변에서 논리적 허점이나 약점을 파고드는 비판적 질문 포함.\n"
-        "- 도전 상황(스택 변경/핵심 인력 이탈 등) 가정 후 대응 전략 요구.\n"
-        "- 비용/품질, 속도/안정성 등 상충 가치 간 의사결정 질문.\n"
-        "- [[최신 사업 요약]]의 약점/위협 요소와 지원자 역량을 연결한 압박 질문 포함."
-    ),
-    "normal": (
-        "- 실제 현업 시나리오를 제시하고, 의사결정 근거(데이터/리스크/협업)를 구체적으로 설명하도록 유도.\n"
-        "- 성공/실패 사례 1개씩 비교하여 학습 포인트를 말하게 함.\n"
-        "- 용어 정의와 범위(스코프) 명확화 질문 포함."
-    ),
-    "easy": (
-        "- 기본 개념/프로세스 이해도를 확인하는 평이한 질문 위주.\n"
-        "- 경험 소개를 유도하되, 깊은 압박 질문은 지양.\n"
-        "- 용어/약어 설명 요청, 간단한 예시 상황 질문 포함."
-    ),
-}
-
-# -----------------------------------------------------------------------------
-# 면접 설계자 (Interview Designer)
+# 면접 설계자 (Interview Designer) — 레거시 3단계 요약형
 # -----------------------------------------------------------------------------
 prompt_interview_designer = (
     SYSTEM_RULES
@@ -331,6 +343,77 @@ prompt_interview_designer = (
     { "stage": "조직 적합성 및 성장 가능성", "objectives": ["..."], "questions": ["..."] }
   ]
 }
+"""
+    + prompt_json_output_only
+)
+
+# -----------------------------------------------------------------------------
+# V2: 인터뷰 설계자 (Full Simulation Plan with phases/types/mix/curve)
+# -----------------------------------------------------------------------------
+prompt_interview_designer_v2 = (
+    SYSTEM_RULES
+    + """
+{persona_description}
+{question_style_guide}
+당신은 위 관점을 가진 '면접 설계자'입니다. 아래 정보를 바탕으로 20~30분 완전한 시뮬레이션용 계획을 설계하세요.
+요구사항:
+- phases: intro → core → wrapup 순서
+- 각 item은 question_type을 다음 중 하나로: ["icebreaking","self_intro","motivation","star","competency","case","system","hard","wrapup"]
+- difficulty_curve: ["easy","normal","hard"] (core 내 질문이 자연스레 상승)
+- mix_ratio: {"star":0.x,"case":0.x,"competency":0.x,"system":0.x} 합 1.0 (core 기준)
+- 각 question은 최대 1문장(≤200자), followups는 1~3개
+- KPI/NCS 맥락이 있으면 items[*].kpi 필드에 ["OEE","MTBF"] 등 포함 가능
+
+[[최신 사업 요약]]  
+{business_info}
+[[JD]]  
+{jd_context}
+[[이력서]]  
+{resume_context}
+[[리서치]]  
+{research_context}
+[[NCS 요약/키워드]]  
+{ncs_info}
+난이도 지침: {difficulty_instruction}
+
+[출력 JSON 스키마]
+{
+  "language": "ko",
+  "difficulty_curve": ["easy","normal","hard"],
+  "mix_ratio": {"star":0.4,"case":0.3,"competency":0.2,"system":0.1},
+  "phases": [
+    {
+      "phase": "intro",
+      "items": [
+        {"question_type":"icebreaking","question":"...", "followups":["..."]},
+        {"question_type":"self_intro","question":"...", "followups":["..."]},
+        {"question_type":"motivation","question":"...", "followups":["..."]}
+      ]
+    },
+    {
+      "phase": "core",
+      "items": [
+        {"question_type":"star","question":"...","followups":["..."], "kpi":["OEE","MTBF"]},
+        {"question_type":"competency","question":"...","followups":["..."]},
+        {"question_type":"case","question":"...","followups":["..."], "kpi":["..."]},
+        {"question_type":"system","question":"...","followups":["..."]},
+        {"question_type":"hard","question":"...","followups":["..."]}
+      ]
+    },
+    {
+      "phase": "wrapup",
+      "items": [
+        {"question_type":"wrapup","question":"마지막으로 질문하고 싶은 것이 있으신가요?", "followups":[]},
+        {"question_type":"wrapup","question":"마지막으로 하고 싶은 말이 있으신가요?", "followups":[]}
+      ]
+    }
+  ]
+}
+출력 전 자가검증 체크리스트:
+- 질문 중복/의도 충돌 없음
+- core에서 난이도 easy→normal→hard 흐름 유지
+- mix_ratio 준수(±1개 허용)
+- 직무 적합성(KPI/NCS) 커버됨
 """
     + prompt_json_output_only
 )
@@ -395,7 +478,7 @@ prompt_rag_json_correction = (
 )
 
 # -----------------------------------------------------------------------------
-# 꼬리 질문 생성 (Follow-up)
+# 꼬리 질문 생성 (Follow-up) — 레거시 단일 문장형
 # -----------------------------------------------------------------------------
 prompt_rag_follow_up_question = (
     SYSTEM_RULES
@@ -406,6 +489,41 @@ prompt_rag_follow_up_question = (
 원 질문의 목표 달성을 위해 논리를 더 파고들거나 부족한 부분을 보완하는 핵심 꼬리 질문 1개를 생성하세요(한 문장, ≤200자).
 [출력]
 { "follow_up_question": "..." }
+"""
+    + prompt_json_output_only
+)
+
+# -----------------------------------------------------------------------------
+# V2: 꼬리질문 (키워드 기반 + 폴백 + 근거)
+# -----------------------------------------------------------------------------
+prompt_followup_v2 = (
+    SYSTEM_RULES
+    + """
+{persona_description}
+목표: '직전 답변(latest_answer)'의 핵심 키워드를 추출하고, 해당 키워드를 근거로 "메인 질문 1개 + 꼬리질문 1~3개"를 생성합니다.
+키워드가 부실하면 일반 목적의 안전한 꼬리질문으로 폴백합니다.
+
+[입력]
+- phase: {phase}                # "intro" | "core" | "wrapup"
+- question_type: {question_type}# "icebreaking|self_intro|motivation|star|competency|case|system|hard|wrapup"
+- objective: {objective}
+- latest_answer: {latest_answer}
+- company_context: {company_context}
+- ncs: {ncs}
+- kpi: {kpi}
+
+[출력 스키마]
+{
+  "question": "메인 질문 1개(≤200자)",
+  "followups": ["꼬리1","꼬리2"],
+  "rationale": "키워드 기반 혹은 폴백 사유(200자 이내)",
+  "fallback_used": false,
+  "keywords": ["키워드1","키워드2"]
+}
+규칙:
+- followups는 1~3개
+- latest_answer가 빈약하여 의미 있는 키워드를 못 찾으면 fallback_used=true로 표기하고, 안전한 일반 꼬리질문을 생성
+- 민감/사생활/차별 유발 소재 금지
 """
     + prompt_json_output_only
 )
@@ -455,6 +573,84 @@ prompt_rag_final_report = (
     }
   ]
 }
+"""
+    + prompt_json_output_only
+)
+
+# -----------------------------------------------------------------------------
+# 신규: 아이스브레이킹/자기소개/지원동기 (JSON 스키마 + 제약)
+# -----------------------------------------------------------------------------
+prompt_icebreaker_question = (
+    SYSTEM_RULES
+    + """
+면접 시작 전에 긴장을 풀고 분위기를 편안하게 만드는 '가벼운 질문'을 한국어로 정확히 1개만 생성하세요.
+다양한 주제(예: 취미, 최근 경험, 소소한 일상 등)를 활용하여 질문을 생성하세요.
+제약:
+- 1문장, 60자 이내, 이모지/이모티콘/구어체 과다 금지
+- 민감 정보(가족, 건강, 정치/종교, 사적 신상) 질문 금지
+- 상황 맥락(현장/원격/화상 여부 등)이 주어지면 자연스럽게 반영
+[출력]
+{ "question": "..." }
+"""
+    + prompt_json_output_only
+)
+
+prompt_self_introduction_question = (
+    SYSTEM_RULES
+    + """
+지원자의 자기소개를 유도하는 질문을 한국어로 정확히 1개만 생성하세요.
+제약:
+- 1문장, 60자 이내, 공손하고 간결
+- 예시 표현(예: "1분 자기소개")을 포함해도 되지만 강제하지는 말 것
+[출력]
+{ "question": "..." }
+"""
+    + prompt_json_output_only
+)
+
+prompt_motivation_question = (
+    SYSTEM_RULES
+    + """
+지원 동기를 묻는 '의문문'을 한국어로 정확히 1개만 생성하세요. 반드시 물음표(?)로 끝나야 합니다.
+제약:
+- 1문장, 70자 이내, 공손하고 간결
+- 회사/직무 맥락 변수가 주어지면 자연스럽게 반영
+- 예시: "우리 회사에 지원하신 동기는 무엇인가요?", "{company_name}의 {job_title} 직무에 관심을 갖게 된 계기가 있으신가요?"
+[출력]
+{ "question": "..." }
+"""
+    + prompt_json_output_only
+)
+
+# --- prompt_soft_followups (아이스브레이크/자기소개/지원동기 전용) ---
+prompt_soft_followup = (
+    SYSTEM_RULES
+    + """
+다음 답변에 이어서 아주 가벼운 꼬리질문 1개만 한국어로 생성하세요.
+목표는 대화를 자연스럽게 잇거나(icebreak), 핵심을 조금만 구체화(intro/motivation)하는 것입니다.
+제약:
+- 1문장, 80자 이내, 공손하고 간결
+- 사생활 침해(가족/건강/정치·종교/재정/연애) 금지, 압박 금지
+- 이미 답한 내용의 단순 반복/동의 유도 금지
+- 상황 맥락을 부드럽게 반영
+
+[컨텍스트]
+- stage: {stage}               # "icebreak" | "intro:self" | "intro:motivation"
+- company: {company_name}
+- role: {job_title}
+- persona: {persona_description}
+
+[원 질문]
+{origin_question}
+
+[직전 답변]
+{user_answer}
+
+[부족 힌트]
+{deficit_hint}
+
+[출력]
+{ "follow_up_question": "..." }
 """
     + prompt_json_output_only
 )
@@ -643,3 +839,105 @@ CACHE_TTLS = {
     "INTERVIEW_PLAN": 60 * 30,        # 30m
     "RAG_WEB": 60 * 10,               # 10m
 }
+
+# -----------------------------------------------------------------------------
+# 안전/저비용 템플릿 + LLM 폴백 헬퍼 (운영 안정화)
+# -----------------------------------------------------------------------------
+ICEBREAK_TEMPLATES_KO = [
+    "오시느라 고생 많으셨습니다. 컨디션은 어떠세요?",
+    "처음이라 긴장되실 수 있어요. 편하게 말씀해주셔도 됩니다.",
+    "오늘 인터뷰는 편안한 분위기로 진행하겠습니다. 준비되셨으면 시작할게요.",
+    "최근에 즐겁게 읽으신 책이나 인상 깊었던 콘텐츠가 있으신가요?",
+    "오늘 오시는 길은 어떠셨나요? 특별한 일은 없으셨고요?",
+    "면접 전에 긴장을 푸는 본인만의 방법이 있으신가요?",
+    "주말에는 주로 어떤 활동을 하시면서 시간을 보내시나요?"
+]
+INTRO_TEMPLATE_KO = "간단히 자기소개 부탁드립니다."
+MOTIVE_TEMPLATE_KO = "이번 직무에 지원하신 동기를 말씀해 주세요."
+
+WRAPUP_TEMPLATES_KO = [
+    "마지막으로 질문하고 싶은 것이 있으신가요?",
+    "마지막으로 하고 싶은 말이 있으신가요?"
+]
+
+# llm_call: (prompt_str: str) -> Dict[str, Any] 를 기대 (JSON 파싱 실패 시 예외 권장)
+def make_icebreak_question_llm_or_template(llm_call: Callable[[str], Dict[str, Any]]) -> str:
+    candidate = random.choice(ICEBREAK_TEMPLATES_KO)
+    try:
+        out = llm_call(prompt_icebreaker_question)
+        q = (out or {}).get("question", "").strip()
+        return q or candidate
+    except Exception:
+        return candidate
+
+def make_intro_question_llm_or_template(llm_call: Callable[[str], Dict[str, Any]]) -> str:
+    try:
+        out = llm_call(prompt_self_introduction_question)
+        q = (out or {}).get("question", "").strip()
+        return q or INTRO_TEMPLATE_KO
+    except Exception:
+        return INTRO_TEMPLATE_KO
+
+def make_motive_question_llm_or_template(llm_call: Callable[[str], Dict[str, Any]]) -> str:
+    try:
+        out = llm_call(prompt_motivation_question)
+        q = (out or {}).get("question", "").strip()
+        return q or MOTIVE_TEMPLATE_KO
+    except Exception:
+        return MOTIVE_TEMPLATE_KO
+
+def make_wrapup_question_template() -> str:
+    return random.choice(WRAPUP_TEMPLATES_KO)
+
+# =============================================================================
+# 신규: 상세 리포트 (문항 도시에) - 배치 패스 / 오버뷰는 위에 정의됨
+# =============================================================================
+
+__all__ = [
+    # Personas / Rules / Scores
+    "SYSTEM_RULES",
+    "prompt_json_output_only",
+    "INTERVIEWER_PERSONAS",
+    "SCORE_BOUNDS",
+    "DIFFICULTY_INSTRUCTIONS",
+    # Enums
+    "QUESTION_TYPES",
+    "PHASES",
+    # Core prompts
+    "prompt_identifier",
+    "prompt_extractor",
+    "prompt_scorer",
+    "prompt_score_explainer",
+    "prompt_coach",
+    "prompt_bias_checker",
+    "prompt_model_answer",
+    "prompt_interview_designer",
+    "prompt_interview_designer_v2",
+    "prompt_resume_analyzer",
+    "prompt_rag_answer_analysis",
+    "prompt_rag_json_correction",
+    "prompt_rag_follow_up_question",
+    "prompt_followup_v2",
+    "prompt_rag_final_report",
+    # New prompts
+    "prompt_icebreaker_question",
+    "prompt_self_introduction_question",
+    "prompt_motivation_question",
+    # Detailed reports
+    "prompt_detailed_section",
+    "prompt_detailed_overview",
+    # Orchestration doc
+    "ORCHESTRATION_DOC",
+    # Cache keys
+    "CACHE_KEYS",
+    "CACHE_TTLS",
+    # Helpers
+    "ICEBREAK_TEMPLATES_KO",
+    "INTRO_TEMPLATE_KO",
+    "MOTIVE_TEMPLATE_KO",
+    "WRAPUP_TEMPLATES_KO",
+    "make_icebreak_question_llm_or_template",
+    "make_intro_question_llm_or_template",
+    "make_motive_question_llm_or_template",
+    "make_wrapup_question_template",
+]

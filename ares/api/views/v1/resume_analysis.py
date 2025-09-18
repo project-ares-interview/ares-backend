@@ -174,14 +174,32 @@ The input can be either text or file uploads.
         data = serializer.validated_data
 
         # 1) company 정보 파싱 및 검증
-        try:
-            company_data = json.loads(data.get("company", "{}"))
-            company_serializer = CompanyDataSerializer(data=company_data)
-            if not company_serializer.is_valid():
-                return Response({"company_errors": company_serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
-            company_meta = company_serializer.validated_data
-        except json.JSONDecodeError:
-            return Response({"error": "Company data is not a valid JSON string."}, status=status.HTTP_400_BAD_REQUEST)
+        # - 입력 타입 호환: dict 또는 JSON 문자열 모두 허용
+        # - 키 호환: "company"와 "company_name" 모두 수용하되 내부적으로 company_name으로 통일
+        raw_company = data.get("company") or data.get("company_name") or {}
+
+        if isinstance(raw_company, str):
+            try:
+                company_data = json.loads(raw_company or "{}")
+            except json.JSONDecodeError:
+                return Response({"error": "Company data is not a valid JSON string."},
+                                status=status.HTTP_400_BAD_REQUEST)
+        elif isinstance(raw_company, dict):
+            company_data = raw_company
+        else:
+            company_data = {}
+
+        # 키 정규화: company_name 기준으로 맞춤
+        company_name = company_data.get("company_name") or company_data.get("company") or ""
+        if company_name and "company_name" not in company_data:
+            company_data["company_name"] = company_name
+
+        company_serializer = CompanyDataSerializer(data=company_data)
+        if not company_serializer.is_valid():
+            return Response({"company_errors": company_serializer.errors},
+                            status=status.HTTP_400_BAD_REQUEST)
+        company_meta = company_serializer.validated_data
+
 
         # 2) JD, 이력서, 리서치 텍스트 추출 (파일 또는 텍스트)
         try:
