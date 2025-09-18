@@ -38,6 +38,8 @@ from ares.api.views.v1.user import UserDetailView, UserRegisterView
 from dj_rest_auth.views import LoginView, LogoutView
 
 from ares.api.views.v1.analyze import AnalyzeView, PercentileAnalysisView, GenerateAIAdviceView
+from ares.api.views.v1.calendar import calendar_view, add_event, authorize, oauth2callback, delete_event
+
 
 router = DefaultRouter()
 router.register(r"examples", ExampleViewSet, basename="example")
@@ -277,4 +279,19 @@ urlpatterns = [
         name="interview-analyze",
     ),
     path("interview/coach/", interview_coach_view, name="interview-coach"),
+    
+    path('calendar/', calendar_view, name='calendar'),
+    
+    # 최종 URL: /api/v1/calendar/add-event/
+    path('calendar/add-event/', add_event, name='add_event'),
+
+    # 최종 URL: /api/v1/calendar/delete-event/<event_id>/
+    path('calendar/delete-event/<str:event_id>/', delete_event, name='delete_event'),
+
+    # --- [Google 인증 URL] ---
+    # 최종 URL: /api/v1/google/authorize/
+    path('google/authorize/', authorize, name='authorize'),
+    
+    # 최종 URL: /api/v1/google/callback/
+    path('google/callback/', oauth2callback, name='oauth2callback'),
 ]
