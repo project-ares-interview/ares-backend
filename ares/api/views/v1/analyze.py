@@ -146,7 +146,7 @@ class ScoreAnalyzer:
         """가장 최신의 interview_scores CSV 파일 로드"""
         try:
             # ares/data/ 디렉토리에서 interview_scores로 시작하는 CSV 파일들 찾기
-            data_dir = Path('ares/data')
+            data_dir = Path('data')
             csv_paths = [str(p) for p in data_dir.glob('interview_scores_*.csv')]
 
             if not csv_paths:
