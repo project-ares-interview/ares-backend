@@ -51,6 +51,7 @@ dependencies = [
     "ddgs>=9.5.5",
     "charset-normalizer>=3.4.3",
     "drf-spectacular>=0.28.0",
+    "whitenoise>=6.10.0",
 ]
 
 [tool.ruff]
