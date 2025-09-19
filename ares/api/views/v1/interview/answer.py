@@ -109,6 +109,7 @@ Submits a candidate's answer to a given question during an active interview sess
                 company_name=rag_info.get("company_name", ""),
                 job_title=rag_info.get("job_title", ""),
                 persona_description=rag_bot.persona["persona_description"],
+                force=True,
             )
             if soft_fu:
                 followups.append(soft_fu)
