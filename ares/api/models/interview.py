@@ -82,49 +82,29 @@ class InterviewSession(models.Model):
 
 
 class InterviewTurn(models.Model):
+    """면접 대화의 각 차례(Turn)를 나타냅니다."""
+
     class Role(models.TextChoices):
-        INTERVIEWER = "interviewer", "Interviewer"
-        CANDIDATE = "candidate", "Candidate"
-        SYSTEM = "system", "System"
+        INTERVIEWER = "INTERVIEWER", "면접관"
+        CANDIDATE = "CANDIDATE", "지원자"
 
-    id = models.BigAutoField(primary_key=True)
     session = models.ForeignKey(
-        InterviewSession,
-        on_delete=models.CASCADE,
-        related_name="turns",
-        db_index=True,
+        InterviewSession, on_delete=models.CASCADE, related_name="turns"
     )
-    turn_index = models.PositiveIntegerField(db_index=True)  # 0부터 증가
-    role = models.CharField(max_length=16, choices=Role.choices, db_index=True)
-
-    question = models.TextField(blank=True, default="")
-    answer = models.TextField(blank=True, default="")
-
-    # 🔹 신규: 인터뷰어 턴의 꼬리질문 세트 저장
-    #    뷰/시리얼라이저에서 List[str]을 기대한다면
-    #    서비스단에서 [{"type":"why","text":"..."}] → ["..."]로 변환하여 저장하거나,
-    #    아래 주석처럼 단순 List[str]로 운영해도 됨.
-    followups = models.JSONField(default=list, blank=True)  # 예) ["왜 그렇게 판단했나요?", "근거를 설명해 보세요."]
-
-    # 평가/피드백
-    scores = models.JSONField(default=dict, blank=True)      # {"overall":3.7,"S":3,...}
-    feedback = models.TextField(blank=True, default="")
-
-    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    turn_index = models.PositiveIntegerField(help_text="내부 정렬을 위한 숫자 인덱스")
+    turn_label = models.CharField(
+        max_length=10, default="0", help_text="사용자에게 보여질 순번 (예: '1', '1-1')"
+    )
+    role = models.CharField(max_length=20, choices=Role.choices)
+    question = models.TextField(blank=True, null=True)
+    answer = models.TextField(blank=True, null=True)
+    scores = models.JSONField(blank=True, null=True)
+    feedback = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        db_table = "interview_turn"
+        unique_together = ("session", "turn_index")
         ordering = ["turn_index"]
-        constraints = [
-            models.UniqueConstraint(
-                fields=["session", "turn_index"],
-                name="unique_session_turnindex",
-            )
-        ]
-        indexes = [
-            models.Index(fields=["session", "turn_index"]),
-        ]
 
-    def __str__(self) -> str:
-        # FK 컬럼명 자동 생성: session_id 사용 가능
-        return f"Turn#{self.turn_index} {self.role} (session={self.session_id})"
+    def __str__(self):
+        return f"Turn {self.turn_label} ({self.role}) for Session {self.session.id}"

@@ -1,4 +1,5 @@
 # ares/api/views/v1/interview/next.py
+import json
 from typing import Any, Dict, List, Optional
 
 from rest_framework import permissions, status
@@ -16,6 +17,7 @@ log = get_logger(__name__)
 MAX_FOLLOWUPS_PER_Q = 3
 DEFAULT_FSM: Dict[str, Any] = {
     "stage_idx": 0, "question_idx": 0, "followup_idx": 0,
+    "main_question_index": 0,
     "pending_followups": [], "done": False,
 }
 
@@ -30,7 +32,21 @@ def _get_current_main_question(plan_list: List[dict], stage_idx: int, question_i
     q_list = stage.get("questions", [])
     if not (0 <= question_idx < len(q_list)): return None
     q_raw = q_list[question_idx]
-    return q_raw.get("question", q_raw) if isinstance(q_raw, dict) else str(q_raw)
+    
+    # Case 1: It's a dictionary like {"question": "..."}
+    if isinstance(q_raw, dict):
+        return q_raw.get("question", "").strip() or None
+    # Case 2: It's a string that might be a plain question or a JSON string
+    if isinstance(q_raw, str):
+        s = q_raw.strip()
+        try:
+            data = json.loads(s)
+            if isinstance(data, dict) and "question" in data:
+                return str(data["question"]).strip()
+        except json.JSONDecodeError:
+            pass  # Not a JSON string, so treat as plain text below
+        return s if s else None
+    return None
 
 
 class InterviewNextQuestionAPIView(APIView):
@@ -69,9 +85,13 @@ Fetches the next question in the interview flow.
 
         followup_idx = int(fsm.get("followup_idx", 0))
         pending_followups = fsm.get("pending_followups", [])
+        main_question_index = int(fsm.get("main_question_index", 0))
+        next_question = None
+        turn_label = ""
 
         if v.get("include_followups", True) and followup_idx < len(pending_followups):
             next_question = pending_followups[followup_idx]
+            turn_label = f"{main_question_index}-{followup_idx + 1}"
             fsm["followup_idx"] += 1
         else:
             fsm["pending_followups"] = []
@@ -82,11 +102,17 @@ Fetches the next question in the interview flow.
             next_question = _get_current_main_question(plan_list, stage_idx, question_idx + 1)
             if next_question:
                 fsm["question_idx"] += 1
+                main_question_index += 1
+                fsm["main_question_index"] = main_question_index
+                turn_label = str(main_question_index)
             else:
                 next_question = _get_current_main_question(plan_list, stage_idx + 1, 0)
                 if next_question:
                     fsm["stage_idx"] += 1
                     fsm["question_idx"] = 0
+                    main_question_index += 1
+                    fsm["main_question_index"] = main_question_index
+                    turn_label = str(main_question_index)
                 else:
                     fsm["done"] = True
 
@@ -100,12 +126,13 @@ Fetches the next question in the interview flow.
         turn = InterviewTurn.objects.create(
             session=session,
             turn_index=(last_turn.turn_index + 1 if last_turn else 0),
+            turn_label=turn_label,
             role=InterviewTurn.Role.INTERVIEWER,
             question=next_question,
         )
 
         out = InterviewNextOut({
-            "session_id": str(session.id), "turn_index": int(turn.turn_index),
+            "session_id": str(session.id), "turn_label": turn.turn_label,
             "question": next_question, "done": False,
         })
         return Response(out.data, status=status.HTTP_200_OK)
