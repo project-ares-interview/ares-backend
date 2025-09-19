@@ -31,6 +31,7 @@ FALLBACK_QUESTION = (
 )
 DEFAULT_FSM: Dict[str, Any] = {
     "stage_idx": 0, "question_idx": 0, "followup_idx": 0,
+    "main_question_index": 0,
     "pending_followups": [], "done": False,
 }
 
@@ -82,16 +83,19 @@ def _extract_first_question_from_plan(interview_plan_data: dict | list | None) -
     questions = first_stage.get("questions")
     if isinstance(questions, list) and questions:
         q0 = questions[0]
-        if isinstance(q0, str) and q0.strip():
+        # Case 1: It's a dictionary like {"question": "..."}
+        if isinstance(q0, dict):
+            return q0.get("question", "").strip() or None
+        # Case 2: It's a string that might be a plain question or a JSON string
+        if isinstance(q0, str):
             s = q0.strip()
-            if (s.startswith("{based on the provided string, there are no incorrect escaping issues. The string is already valid Python code and does not contain any problematic escape sequences like \n or \t that need correction. The JSON output reflects this by returning the original string as is.}:") and s.endswith("}")):
-                try:
-                    j = json.loads(s)
-                    if isinstance(j, dict) and isinstance(j.get("question"), str): return j["question"].strip()
-                except Exception: pass
-            return s
-        if isinstance(q0, dict) and isinstance(q0.get("question"), str):
-            return q0["question"].strip()
+            try:
+                data = json.loads(s)
+                if isinstance(data, dict) and "question" in data:
+                    return str(data["question"]).strip()
+            except json.JSONDecodeError:
+                pass  # Not a JSON string, so treat as plain text below
+            return s if s else None
     return None
 
 
@@ -153,22 +157,24 @@ It generates the first question and returns a new session ID.
                 "job_title": job_title, "container_name": container_name, "index_name": index_name,
             }
 
+            fsm = dict(DEFAULT_FSM)
+            fsm["main_question_index"] = 1
             session = InterviewSession.objects.create(
                 user=request.user if getattr(request.user, "is_authenticated", False) else None,
                 jd_context=v.get("jd_context", ""), resume_context=v.get("resume_context", ""),
-                ncs_query=ncs_ctx.get("ncs_query", ""), meta={**to_jsonable(meta), "fsm": dict(DEFAULT_FSM)},
+                ncs_query=ncs_ctx.get("ncs_query", ""), meta={**to_jsonable(meta), "fsm": fsm},
                 context=to_jsonable(ncs_ctx), rag_context=to_jsonable(rag_context_to_save),
                 language=(v.get("language") or "ko").lower(), difficulty=difficulty,
                 interviewer_mode=interviewer_mode,
             )
 
             turn = InterviewTurn.objects.create(
-                session=session, turn_index=0, role=InterviewTurn.Role.INTERVIEWER, question=question_text,
+                session=session, turn_index=0, turn_label="1", role=InterviewTurn.Role.INTERVIEWER, question=question_text,
             )
 
             out = InterviewStartOut({
                 "message": "Interview session started successfully.", "question": question_text,
-                "session_id": str(session.id), "turn_index": int(turn.turn_index),
+                "session_id": str(session.id), "turn_label": turn.turn_label,
                 "context": session.context or {}, "language": session.language,
                 "difficulty": session.difficulty, "interviewer_mode": session.interviewer_mode,
             })

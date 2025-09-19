@@ -166,9 +166,13 @@ class ScoreAnalyzer:
 
             return True
 
+        except FileNotFoundError:
+            # 📂 interview_scores.csv 파일이 없을 때의 처리
+            print("interview_scores CSV 파일을 찾을 수 없습니다.")
+            self.df = pd.DataFrame(columns=["interviewer_id", "session_id", "turn_index", "question_id", "score"])
         except Exception as e:
-            print(f"❌ CSV 로드 실패: {e}")
-            return False
+            print(f"CSV 로드 실패: {e}")
+            self.df = pd.DataFrame(columns=["interviewer_id", "session_id", "turn_index", "question_id", "score"])
 
     def calculate_percentile(self, score, score_type, filters=None):
         """특정 점수의 백분위 계산"""

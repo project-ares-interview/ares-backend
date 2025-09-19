@@ -56,6 +56,10 @@ class RAGInterviewBot:
         self.analyzer = AnswerAnalyzer(**bot_args)
         self.reporter = ReportGenerator(**bot_args)
 
+        # Expose the underlying method for soft-followup compatibility
+        self._chat_json = self.analyzer._chat_json
+        self.persona = self.planner.persona
+
         self.rag_ready = self.planner.rag_ready # Check readiness from one of the components
 
     def design_interview_plan(self) -> Dict:

@@ -66,11 +66,11 @@ class InterviewStartOut(serializers.Serializer):
     message = serializers.CharField()
     question = serializers.CharField()
     session_id = serializers.UUIDField()
-    turn_index = serializers.IntegerField()
+    turn_label = serializers.CharField(help_text="The label of the turn, e.g., '1'.")
     context = serializers.JSONField(required=False)
     language = serializers.CharField(required=False, default="ko")
     difficulty = serializers.CharField(required=False, default="normal")
-    interviewer_mode = serializers.CharField(required=False, default="team_lead")  # ✅ 뷰와 일치
+    interviewer_mode = serializers.CharField(required=False, default="team_lead")
 
 # ===== Next =====
 class InterviewNextIn(serializers.Serializer):
@@ -90,9 +90,9 @@ class InterviewNextIn(serializers.Serializer):
             'Next Question',
             value={
                 "session_id": "a1b2c3d4-e5f6-7890-1234-567890abcdef",
-                "turn_index": 2,
+                "turn_label": "2",
                 "question": "Tell me about a time you handled a difficult stakeholder.",
-                "followups": [],              # ✅ 뷰 응답과 동일
+                "followups": [],
                 "done": False,
             },
             response_only=True,
@@ -101,7 +101,7 @@ class InterviewNextIn(serializers.Serializer):
             'Interview Finished',
             value={
                 "session_id": "a1b2c3d4-e5f6-7890-1234-567890abcdef",
-                "turn_index": None,
+                "turn_label": None,
                 "question": None,
                 "followups": [],
                 "done": True,
@@ -112,9 +112,9 @@ class InterviewNextIn(serializers.Serializer):
 )
 class InterviewNextOut(serializers.Serializer):
     session_id = serializers.UUIDField()
-    turn_index = serializers.IntegerField(allow_null=True)
+    turn_label = serializers.CharField(allow_null=True, help_text="The label of the turn, e.g., '2' or '2-1'.")
     question = serializers.CharField(allow_null=True)
-    followups = serializers.ListField(child=serializers.CharField(), required=False, default=list)  # ✅ 추가
+    followups = serializers.ListField(child=serializers.CharField(), required=False, default=list)
     done = serializers.BooleanField()
 
 # ===== Answer =====
@@ -141,9 +141,10 @@ class InterviewAnswerIn(serializers.Serializer):
         return v
 
 class InterviewAnswerOut(serializers.Serializer):
-    analysis = serializers.DictField()  # ✅ 뷰에서 dict 그대로 반환하므로 유연화
+    analysis = serializers.DictField()
     followups_buffered = serializers.ListField(child=serializers.CharField())
     message = serializers.CharField()
+    turn_label = serializers.CharField(help_text="The label of the answer that was just submitted, e.g., '1-1'.")
 
 # ===== Finish =====
 class InterviewFinishIn(serializers.Serializer):
