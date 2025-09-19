@@ -20,17 +20,18 @@ from ares.api.views.v1.resume import (
     ResumeLanguageViewSet,
     ResumeLinkViewSet,
 )
-from ares.api.views.v1.interview import (
-    interview_coach_view,
-    InterviewStartAPIView,
-    InterviewNextQuestionAPIView,
-    InterviewSubmitAnswerAPIView,
-    InterviewFinishAPIView,
-    InterviewReportAPIView, # <--- Added this line
-    FindCompaniesView,
-)
-from ares.api.views.v1.resume_analysis import ResumeAnalysisAPIView
 
+# ---- Interviews (split views) ----
+from ares.api.views.v1.interview.start import InterviewStartAPIView
+from ares.api.views.v1.interview.next import InterviewNextQuestionAPIView
+from ares.api.views.v1.interview.answer import InterviewSubmitAnswerAPIView
+from ares.api.views.v1.interview.finish import InterviewFinishAPIView
+from ares.api.views.v1.interview.report import InterviewReportAPIView
+from ares.api.views.v1.interview.find_companies import FindCompaniesView
+from ares.api.views.v1.interview.coach import interview_coach_view
+from ares.api.views.v1.interview.admin import InterviewAdminSyncIndexAPIView  # ← 추가
+
+from ares.api.views.v1.resume_analysis import ResumeAnalysisAPIView
 from ares.api.views.v1.social import GoogleLogin, GoogleRegisterView
 from ares.api.views.v1.user import UserDetailView, UserRegisterView
 from dj_rest_auth.views import LoginView, LogoutView
@@ -45,16 +46,21 @@ router.register(r"examples", ExampleViewSet, basename="example")
 urlpatterns = [
     # Router URLs
     path("", include(router.urls)),
+
     # ----- AI Analysis -----
     path("resume/analyze/", ResumeAnalysisAPIView.as_view(), name="v1-resume-analyze"),
+
     # ----- Interviews (AI-based) -----
     path("interviews/start/", InterviewStartAPIView.as_view(), name="v1-interview-start"),
     path("interviews/next/", InterviewNextQuestionAPIView.as_view(), name="v1-interview-next"),
     path("interviews/answer/", InterviewSubmitAnswerAPIView.as_view(), name="v1-interview-answer"),
     path("interviews/finish/", InterviewFinishAPIView.as_view(), name="v1-interview-finish"),
     path("interviews/report/<uuid:session_id>/", InterviewReportAPIView.as_view(), name="v1-interview-report"),
+    path("interviews/find-companies/", FindCompaniesView.as_view(), name="interviews-find-companies"),  # ← prefix 통일
+    path("interviews/coach/", interview_coach_view, name="interviews-coach"),  # ← prefix 통일
+    path("interviews/admin/sync-index/", InterviewAdminSyncIndexAPIView.as_view(), name="v1-interview-admin-sync"),  # ← 추가
 
-    # ----- Cover Letters Urls -----
+    # ----- Cover Letters -----
     path(
         "cover-letters/",
         CoverLetterViewSet.as_view({"get": "list", "post": "create"}),
@@ -70,7 +76,8 @@ urlpatterns = [
         }),
         name="cover-letter-detail",
     ),
-    # Resume URLs (Template)
+
+    # ----- Resumes (Template) -----
     path(
         "resumes/",
         ResumeViewSet.as_view({"get": "list", "post": "create"}),
@@ -86,7 +93,8 @@ urlpatterns = [
         }),
         name="resume-detail",
     ),
-    # Resume Detail URLs (Nested)
+
+    # ----- Resume Nested Resources -----
     path(
         "resumes/<int:resume_pk>/careers/",
         ResumeCareerViewSet.as_view({"get": "list", "post": "create"}),
@@ -162,7 +170,8 @@ urlpatterns = [
         }),
         name="resume-link-detail",
     ),
-    # User Profile URLs
+
+    # ----- User Profile -----
     path(
         "profile/military-services/",
         MilitaryServiceViewSet.as_view({"get": "list", "post": "create"}),
@@ -185,7 +194,12 @@ urlpatterns = [
     ),
     path(
         "profile/patriots/<int:pk>/",
-        PatriotViewSet.as_view({"get": "retrieve", "put": "update", "patch": "partial_update", "delete": "destroy"}),
+        PatriotViewSet.as_view({
+            "get": "retrieve",
+            "put": "update",
+            "patch": "partial_update",
+            "delete": "destroy",
+        }),
         name="profile-patriot-detail",
     ),
     path(
@@ -195,7 +209,12 @@ urlpatterns = [
     ),
     path(
         "profile/disabilities/<int:pk>/",
-        DisabilityViewSet.as_view({"get": "retrieve", "put": "update", "patch": "partial_update", "delete": "destroy"}),
+        DisabilityViewSet.as_view({
+            "get": "retrieve",
+            "put": "update",
+            "patch": "partial_update",
+            "delete": "destroy",
+        }),
         name="profile-disability-detail",
     ),
     path(
@@ -205,7 +224,12 @@ urlpatterns = [
     ),
     path(
         "profile/educations/<int:pk>/",
-        EducationViewSet.as_view({"get": "retrieve", "put": "update", "patch": "partial_update", "delete": "destroy"}),
+        EducationViewSet.as_view({
+            "get": "retrieve",
+            "put": "update",
+            "patch": "partial_update",
+            "delete": "destroy",
+        }),
         name="profile-education-detail",
     ),
     path(
@@ -215,7 +239,12 @@ urlpatterns = [
     ),
     path(
         "profile/careers/<int:pk>/",
-        CareerViewSet.as_view({"get": "retrieve", "put": "update", "patch": "partial_update", "delete": "destroy"}),
+        CareerViewSet.as_view({
+            "get": "retrieve",
+            "put": "update",
+            "patch": "partial_update",
+            "delete": "destroy",
+        }),
         name="profile-career-detail",
     ),
     path(
@@ -233,52 +262,32 @@ urlpatterns = [
         }),
         name="profile-job-interest-detail",
     ),
+
+    # ----- User / Auth -----
     path("user/", UserDetailView.as_view(), name="user_detail"),
     path("analyze/", AnalyzeView.as_view(), name="analyze"),
     path("analysis/percentiles/", PercentileAnalysisView.as_view(), name="v1-analysis-percentiles"),
     path("analysis/advice/", GenerateAIAdviceView.as_view(), name="v1-analysis-advice"),
+
     # Custom Views
     path("auth/registration/", UserRegisterView.as_view(), name="rest_register"),
-    path("auth/user/", UserDetailView.as_view(), name="user_detail"),
+    path("auth/user/", UserDetailView.as_view(), name="auth_user_detail"),  # ← 이름 변경(중복 해소)
+
     # dj-rest-auth Views
     path("auth/login/", LoginView.as_view(), name="rest_login"),
     path("auth/logout/", LogoutView.as_view(), name="rest_logout"),
-    path(
-        "auth/token/refresh/",
-        TokenRefreshView.as_view(),
-        name="token_refresh",
-    ),
+    path("auth/token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
+
     # Social Auth
-    path(
-        "auth/google/",
-        GoogleLogin.as_view(),
-        name="google_login",
-    ),
-    path(
-        "auth/google/register/",
-        GoogleRegisterView.as_view(),
-        name="google_register",
-    ),
-    # Interview URLs
-    path(
-        "interview/find-companies/",
-        FindCompaniesView.as_view(),
-        name="interview-find-companies",
-    ),
-    path("interview/coach/", interview_coach_view, name="interview-coach"),
-    
-    path('calendar/', calendar_view, name='calendar'),
-    
-    # 최종 URL: /api/v1/calendar/add-event/
-    path('calendar/add-event/', add_event, name='add_event'),
+    path("auth/google/", GoogleLogin.as_view(), name="google_login"),
+    path("auth/google/register/", GoogleRegisterView.as_view(), name="google_register"),
 
-    # 최종 URL: /api/v1/calendar/delete-event/<event_id>/
-    path('calendar/delete-event/<str:event_id>/', delete_event, name='delete_event'),
+    # ----- Calendar & Google OAuth -----
+    path("calendar/", calendar_view, name="calendar"),
+    path("calendar/add-event/", add_event, name="add_event"),
+    path("calendar/delete-event/<str:event_id>/", delete_event, name="delete_event"),
 
-    # --- [Google 인증 URL] ---
-    # 최종 URL: /api/v1/google/authorize/
-    path('google/authorize/', authorize, name='authorize'),
-    
-    # 최종 URL: /api/v1/google/callback/
-    path('google/callback/', oauth2callback, name='oauth2callback'),
+    # Google OAuth (Calendar linking)
+    path("google/authorize/", authorize, name="authorize"),
+    path("google/callback/", oauth2callback, name="oauth2callback"),
 ]

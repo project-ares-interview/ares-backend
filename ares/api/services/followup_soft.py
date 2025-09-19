@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Callable, Optional
 import re, random
 
-from ares.api.services.prompt import prompt_soft_followup
+from ares.api.services.prompts import prompt_soft_followup
 
 SOFT_FU_MAX_PER_TURN = 1
 MIN_LEN_ICEBREAK = 25
