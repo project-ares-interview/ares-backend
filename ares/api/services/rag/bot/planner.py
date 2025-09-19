@@ -78,7 +78,14 @@ class InterviewPlanner(RAGBotBase):
                 {
                     "stage": "지원 동기",
                     "objective": "To verify interest and understanding of the company and role.",
-                    "questions": [self._chat_text(prompt_motivation_question, temperature=0.7, max_tokens=100)]
+                    "questions": [self._chat_text(
+                        prompt_motivation_question.format(
+                            company_name=self.company_name,
+                            job_title=self.job_title
+                        ),
+                        temperature=0.7,
+                        max_tokens=100
+                    )]
                 },
             ]
             normalized = initial_stages + (normalized or [])
