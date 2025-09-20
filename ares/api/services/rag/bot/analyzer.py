@@ -1,8 +1,10 @@
+# ares/api/services/rag/bot/analyzer.py
 """
 Answer Analyzer module for the RAG Interview Bot.
 
-This module is responsible for analyzing candidate's answers, generating follow-up questions,
-and performing structured evaluations.
+- 지원자 답변을 구조적으로 평가하고(Identifier → Extractor → Scorer → Explainer → Coach → ModelAnswer → BiasChecker),
+- RAG + 웹 검색을 곁들인 서술형 분석을 수행,
+- 꼬리질문(follow-ups)을 생성합니다.
 """
 
 import json
@@ -27,54 +29,57 @@ from ..tool_code import google_search
 from .base import RAGBotBase
 from .utils import _truncate, _escape_special_chars, _debug_print_raw_json
 
-class AnswerAnalyzer(RAGBotBase):
+class AnswerAnalyzer:
     """Analyzes answers, generates follow-ups, and performs evaluations."""
+    def __init__(self, bot: RAGBotBase):
+        self.bot = bot
 
     def analyze_answer_with_rag(self, question: str, answer: str, role: Optional[str] = None) -> Dict:
-        role = role or self.job_title
-        print(f"(Analyzing answer... Interviewer: {self.interviewer_mode})")
+        role = role or self.bot.job_title
+        print(f"(Analyzing answer... Interviewer: {self.bot.interviewer_mode})")
         structured = self._structured_evaluation(role=role, answer=answer)
         rag_analysis = self._rag_narrative_analysis(question=question, answer=answer)
         return {"structured": structured, "rag_analysis": rag_analysis}
 
     def _rag_narrative_analysis(self, question: str, answer: str) -> Dict:
-        if not self.rag_ready:
+        if not self.bot.rag_ready:
             return {"error": "RAG system not ready"}
 
         try:
+            # 간단 웹 검색 (에러는 무시하되 분석 텍스트에 반영)
             try:
-                web_result = google_search.search(queries=[f"{self.company_name} {answer}"])
+                web_result = google_search.search(queries=[f"{self.bot.company_name} {answer}"])
                 if not isinstance(web_result, str):
                     web_result = _truncate(json.dumps(web_result, ensure_ascii=False), 2000)
             except Exception:
                 web_result = "Search failed or no results"
 
             safe_answer = _escape_special_chars(answer)
-            internal_check_raw = self.rag_system.query(
+            internal_check_raw = self.bot.rag_system.query(
                 f"Fact-check the following claim and find related data: '{safe_answer}'"
             )
             internal_check = _truncate(internal_check_raw or "", 1200)
 
-            persona_desc = self.persona["persona_description"].replace("{company_name}", self.company_name).replace("{job_title}", self.job_title)
+            persona_desc = self.bot.persona["persona_description"].replace("{company_name}", self.bot.company_name).replace("{job_title}", self.bot.job_title)
             analysis_prompt = (
                 prompt_rag_answer_analysis
                 .replace("{persona_description}", persona_desc)
-                .replace("{evaluation_focus}", self.persona["evaluation_focus"])
-                .replace("{company_name}", self.company_name)
+                .replace("{evaluation_focus}", self.bot.persona["evaluation_focus"])
+                .replace("{company_name}", self.bot.company_name)
                 .replace("{question}", _truncate(question, 400))
                 .replace("{answer}", _truncate(answer, 1500))
                 .replace("{internal_check}", internal_check)
                 .replace("{web_result}", _truncate(web_result, 1500))
             )
 
-            raw_json = self._chat_json(analysis_prompt, temperature=0.2, max_tokens=2000)
+            raw_json = self.bot._chat_json(analysis_prompt, temperature=0.2, max_tokens=2000)
             result = safe_extract_json(raw_json)
             if result is not None:
                 return result
 
             _debug_print_raw_json("RAG_FIRST_PASS", raw_json or "")
-            corrected_raw = self.client.chat.completions.create(
-                model=self.model,
+            corrected_raw = self.bot.client.chat.completions.create(
+                model=self.bot.model,
                 messages=[
                     {"role": "system", "content": "Return ONLY valid JSON. No markdown or commentary."},
                     {"role": "user", "content": analysis_prompt},
@@ -100,7 +105,7 @@ class AnswerAnalyzer(RAGBotBase):
         """Identifier → Extractor → Scorer → ScoreExplainer → Coach → ModelAnswer → BiasChecker"""
         try:
             id_prompt = prompt_identifier.replace("{answer}", _truncate(answer, 1800))
-            id_raw = self._chat_json(id_prompt, temperature=0.1, max_tokens=800)
+            id_raw = self.bot._chat_json(id_prompt, temperature=0.1, max_tokens=800)
             id_json = safe_extract_json(id_raw) or {}
             frameworks: List[str] = id_json.get("frameworks", []) if isinstance(id_json, dict) else []
             values_summary = id_json.get("company_values_summary", "")
@@ -129,26 +134,26 @@ class AnswerAnalyzer(RAGBotBase):
                 + "\n[Candidate's Answer]\n"
                 + _truncate(answer, 1800)
             )
-            ex_raw = self._chat_json(extractor_prompt, temperature=0.2, max_tokens=1600)
+            ex_raw = self.bot._chat_json(extractor_prompt, temperature=0.2, max_tokens=1600)
             ex_json = safe_extract_json(ex_raw) or {}
 
-            ncs_titles = [item.get("title") for item in self.ncs_context.get("ncs", []) if item.get("title")] if isinstance(self.ncs_context.get("ncs"), list) else []
+            ncs_titles = [item.get("title") for item in self.bot.ncs_context.get("ncs", []) if item.get("title")] if isinstance(self.bot.ncs_context.get("ncs"), list) else []
             ncs_details = _truncate(", ".join(ncs_titles), 1200)
-            persona_desc_scorer = self.persona["persona_description"].replace("{company_name}", self.company_name).replace("{job_title}", self.job_title)
+            persona_desc_scorer = self.bot.persona["persona_description"].replace("{company_name}", self.bot.company_name).replace("{job_title}", self.bot.job_title)
             scorer_prompt = (
                 prompt_scorer
                 .replace("{framework_name}", base_fw)
                 .replace("{retrieved_ncs_details}", ncs_details)
                 .replace("{role}", role)
                 .replace("{persona_description}", persona_desc_scorer)
-                .replace("{evaluation_focus}", self.persona["evaluation_focus"])
+                .replace("{evaluation_focus}", self.bot.persona["evaluation_focus"])
                 + "\n[Candidate's Answer]\n"
                 + _truncate(answer, 1800)
             )
-            sc_raw = self._chat_json(scorer_prompt, temperature=0.2, max_tokens=1500)
+            sc_raw = self.bot._chat_json(scorer_prompt, temperature=0.2, max_tokens=1500)
             sc_json = safe_extract_json(sc_raw) or {}
 
-            persona_desc_explainer = self.persona["persona_description"].replace("{company_name}", self.company_name).replace("{job_title}", self.job_title)
+            persona_desc_explainer = self.bot.persona["persona_description"].replace("{company_name}", self.bot.company_name).replace("{job_title}", self.bot.job_title)
             expl_prompt = (
                 prompt_score_explainer
                 .replace("{framework}", json.dumps(sc_json.get("framework", base_fw), ensure_ascii=False))
@@ -158,10 +163,10 @@ class AnswerAnalyzer(RAGBotBase):
                 .replace("{role}", role)
                 .replace("{persona_description}", persona_desc_explainer)
             )
-            expl_raw = self._chat_json(expl_prompt, temperature=0.2, max_tokens=2000)
+            expl_raw = self.bot._chat_json(expl_prompt, temperature=0.2, max_tokens=2000)
             expl_json = safe_extract_json(expl_raw) or {}
 
-            persona_desc_coach = self.persona["persona_description"].replace("{company_name}", self.company_name).replace("{job_title}", self.job_title)
+            persona_desc_coach = self.bot.persona["persona_description"].replace("{company_name}", self.bot.company_name).replace("{job_title}", self.bot.job_title)
             coach_prompt = (
                 prompt_coach
                 .replace("{persona_description}", persona_desc_coach)
@@ -169,23 +174,23 @@ class AnswerAnalyzer(RAGBotBase):
                 .replace("{user_answer}", _truncate(answer, 1800))
                 .replace("{retrieved_ncs_details}", ncs_details)
                 .replace("{role}", role)
-                .replace("{company_name}", self.company_name)
+                .replace("{company_name}", self.bot.company_name)
             )
-            coach_raw = self._chat_json(coach_prompt, temperature=0.2, max_tokens=1400)
+            coach_raw = self.bot._chat_json(coach_prompt, temperature=0.2, max_tokens=1400)
             coach_json = safe_extract_json(coach_raw) or {}
 
-            persona_desc_model = self.persona["persona_description"].replace("{company_name}", self.company_name).replace("{job_title}", self.job_title)
+            persona_desc_model = self.bot.persona["persona_description"].replace("{company_name}", self.bot.company_name).replace("{job_title}", self.bot.job_title)
             model_prompt = (
                 prompt_model_answer
                 .replace("{persona_description}", persona_desc_model)
                 .replace("{retrieved_ncs_details}", ncs_details)
             )
-            model_raw = self._chat_json(model_prompt, temperature=0.4, max_tokens=1400)
+            model_raw = self.bot._chat_json(model_prompt, temperature=0.4, max_tokens=1400)
             model_json = safe_extract_json(model_raw) or {}
 
             def bias_sanitize(text: str) -> Dict:
                 bprompt = prompt_bias_checker.replace("{any_text}", _truncate(text or "", 1600))
-                braw = self._chat_json(bprompt, temperature=0.0, max_tokens=1400)
+                braw = self.bot._chat_json(bprompt, temperature=0.0, max_tokens=1400)
                 return safe_extract_json(braw) or {}
 
             coach_text = json.dumps(coach_json, ensure_ascii=False)
@@ -219,6 +224,11 @@ class AnswerAnalyzer(RAGBotBase):
         limit: int = 3,
         **kwargs,
     ) -> List[str]:
+        """
+        꼬리질문 생성.
+        - 파라미터명은 limit로 통일(뷰에서도 limit 사용).
+        - icebreaking/self_intro/motivation 단계에는 약간 다른 톤을 적용.
+        """
         try:
             if "top_k" in kwargs and isinstance(kwargs["top_k"], int):
                 limit = kwargs["top_k"]
@@ -239,13 +249,16 @@ class AnswerAnalyzer(RAGBotBase):
             current_question_type = question_type_map.get(stage, "general")
 
             ncs_info = ""
-            ncs_dict = self._ensure_ncs_dict(self.ncs_context)
+            ncs_dict = self.bot._ensure_ncs_dict(self.bot.ncs_context)
             if isinstance(ncs_dict.get("ncs"), list):
                 ncs_titles = [it.get("title") for it in ncs_dict["ncs"] if isinstance(it, dict) and it.get("title")]
                 if ncs_titles:
                     ncs_info = f"NCS Job Information: {', '.join(ncs_titles[:6])}."
 
-            persona_desc = self.persona["persona_description"].replace("{company_name}", self.company_name).replace("{job_title}", self.job_title)
+            persona_desc = self.bot.persona["persona_description"].replace("{company_name}", self.bot.company_name).replace("{job_title}", self.bot.job_title)
+            
+            # analysis 딕셔너리를 JSON 문자열로 변환하여 프롬프트에 전달
+            analysis_summary = json.dumps(analysis, ensure_ascii=False, indent=2)
 
             prompt = (
                 prompt_followup_v2
@@ -254,12 +267,13 @@ class AnswerAnalyzer(RAGBotBase):
                 .replace("{question_type}", current_question_type)
                 .replace("{objective}", objective or "")
                 .replace("{latest_answer}", _truncate(answer, 1500))
-                .replace("{company_context}", self.company_name)
+                .replace("{analysis_summary}", _truncate(analysis_summary, 2000)) # 답변 분석 결과 추가
+                .replace("{company_context}", self.bot.company_name)
                 .replace("{ncs}", _truncate(ncs_info, 400))
                 .replace("{kpi}", "[]")
             )
 
-            raw = self._chat_json(prompt, temperature=0.6, max_tokens=500)
+            raw = self.bot._chat_json(prompt, temperature=0.6, max_tokens=500)
             result = safe_extract_json(raw)
 
             if result and isinstance(result, dict):
@@ -272,4 +286,3 @@ class AnswerAnalyzer(RAGBotBase):
             print(f"❌ Follow-up question generation failed: {e}")
             traceback.print_exc()
             return []
-

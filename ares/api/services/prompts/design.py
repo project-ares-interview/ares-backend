@@ -48,6 +48,7 @@ prompt_interview_designer_v2 = (
 요구사항:
 - phases: intro → core → wrapup 순서
 - 각 item은 question_type을 다음 중 하나로: ["icebreaking","self_intro","motivation","star","competency","case","system","hard","wrapup"]
+- icebreaking 질문은 지원자가 면접 장소에 도착하기까지의 과정이나 현재 컨디션 등, 면접 당일의 상황과 관련된 아주 가벼운 스몰 토크여야 합니다. (좋은 예: '오늘 오시는 길은 어떠셨나요?', '점심은 드셨나요?' / 나쁜 예: '가장 감명깊게 읽은 책은?')
 - difficulty_curve: ["easy","normal","hard"] (core 내 질문이 자연스레 상승)
 - mix_ratio: {"star":0.x,"case":0.x,"competency":0.x,"system":0.x} 합 1.0 (core 기준)
 - 각 question은 최대 1문장(≤200자), followups는 1~3개

@@ -1,123 +1,76 @@
+# ares/api/services/rag/bot/reporter.py
 """
-Report Generator module for the RAG Interview Bot.
+Final Report generator for the RAG Interview Bot.
 
-This module is responsible for generating the final detailed and legacy reports.
+- 대화 이력, 구조화 점수, 서술 분석을 종합하여 최종 리포트를 생성합니다.
+- 출력은 JSON 형식(요약/강점-약점/향후 개선 가이드/스코어 테이블 등)으로 가정합니다.
 """
 
 import json
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
+from ares.api.utils.ai_utils import safe_extract_json
 from ares.api.services.prompts import (
     prompt_rag_final_report,
+    prompt_rag_json_correction,
 )
-from ares.api.utils.ai_utils import safe_extract_json
-
 from .base import RAGBotBase
-from .utils import _truncate, _chunked, _force_json_like
+from .utils import _truncate, _debug_print_raw_json
 
+class ReportGenerator:
+    def __init__(self, bot: RAGBotBase):
+        self.bot = bot
 
-# Prompts specific to reporting
-_DETAILED_SECTION_PROMPT = """..."""  # Keeping it short for brevity, will be copied from original
-_DETAILED_OVERVIEW_PROMPT = """...""" # Keeping it short for brevity, will be copied from original
-
-class ReportGenerator(RAGBotBase):
-    """Generates final interview reports."""
-
-    def generate_detailed_final_report(
-        self,
-        transcript: List[Dict],
-        interview_plan: Dict,
-        resume_feedback_analysis: Dict,
-        batch_size: int = 4,
-        max_transcript_digest_chars: int = 6000,
-    ) -> Dict:
-        if not transcript:
-            return {"error": "empty_transcript"}
-
-        persona_desc = self.persona["persona_description"].replace("{company_name}", self.company_name).replace("{job_title}", self.job_title)
-        business_info = self._get_company_business_info()
-        ncs_titles = []
-        if isinstance(self.ncs_context.get("ncs"), list):
-            ncs_titles = [it.get("title") for it in self.ncs_context["ncs"] if it.get("title")]
-
-        digest_lines = []
-        for item in transcript:
-            qid = item.get("question_id", "N/A")
-            stage = item.get("stage", "N/A")
-            obj = item.get("objective", "")
-            rag_analysis = (item.get("analysis") or {}).get("rag_analysis", {})
-            analysis_line = rag_analysis.get("analysis") or ""
-            if not analysis_line:
-                stc = (item.get("analysis") or {}).get("structured", {}).get("scoring", {})
-                analysis_line = stc.get("scoring_reason", "")
-            digest_lines.append(
-                f"[{stage}] {qid} Q: {item.get('question','')}\n"
-                f"  A: {_truncate(item.get('answer',''), 500)}\n"
-                f"  Σ: {_truncate(analysis_line or 'None', 600)}"
-            )
-            if item.get("follow_up_question"):
-                digest_lines.append(
-                    f"  FU-Q: {item['follow_up_question']}\n"
-                    f"  FU-A: {_truncate(item.get('follow_up_answer',''), 320)}"
-                )
-            if obj:
-                digest_lines.append(f"  ▶Objective: {obj}")
-            digest_lines.append("---")
-        transcript_digest = _truncate("\n".join(digest_lines), max_transcript_digest_chars)
-
-        per_question_dossiers: List[Dict] = []
-        # ... (Rest of the logic for detailed report generation)
-
-        return {"message": "Detailed report generated."}
-
-    def generate_final_report(self, transcript: List[Dict], interview_plan: Dict, resume_feedback_analysis: Dict) -> Dict:
-        """Generates the legacy single-pass report."""
-        print("\n\n" + "#" * 70)
-        print(f" Generating legacy final report... (Interviewer: {self.interviewer_mode})")
-        print("#" * 70)
+    def build_report(self, transcript: List[Dict[str, Any]], structured_scores: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        transcript: [{"role":"interviewer"/"candidate", "text":"..." , "id":"1-1", ...}, ...]
+        structured_scores: [analyzer._structured_evaluation 결과 축약본 등]
+        """
         try:
-            conversation_summary = ""
-            for item in transcript:
-                # ... (logic for conversation summary)
-                pass
+            convo_preview = []
+            for turn in transcript[-20:]:  # 최근 20턴만 요약에 반영
+                role = turn.get("role") or ""
+                text = _truncate(turn.get("text") or "", 500)
+                qid = turn.get("id")
+                if qid:
+                    convo_preview.append(f"[{qid}] {role}: {text}")
+                else:
+                    convo_preview.append(f"{role}: {text}")
 
-            persona_desc = self.persona["persona_description"].replace("{company_name}", self.company_name).replace("{job_title}", self.job_title)
-            report_prompt = (
+            persona_desc = self.bot.persona["persona_description"].replace("{company_name}", self.bot.company_name).replace("{job_title}", self.bot.job_title)
+
+            prompt = (
                 prompt_rag_final_report
                 .replace("{persona_description}", persona_desc)
-                # ... (rest of the replacements)
+                .replace("{company_name}", self.bot.company_name)
+                .replace("{job_title}", self.bot.job_title)
+                .replace("{conversation_preview}", "\n".join(convo_preview))
+                .replace("{structured_scores}", _truncate(json.dumps(structured_scores, ensure_ascii=False), 3500))
             )
 
-            raw = self._chat_json(report_prompt, temperature=0.3, max_tokens=4000)
-            report_data = safe_extract_json(raw) or {}
-            report_data = self._cleanup_assessments(report_data)
-            return report_data
+            raw = self.bot._chat_json(prompt, temperature=0.2, max_tokens=2500)
+            result = safe_extract_json(raw)
+            if result is not None:
+                return result
+
+            _debug_print_raw_json("REPORT_FIRST_PASS", raw or "")
+            corrected_raw = self.bot.client.chat.completions.create(
+                model=self.bot.model,
+                messages=[
+                    {"role": "system", "content": "Return ONLY valid JSON. No markdown or commentary."},
+                    {"role": "user", "content": prompt},
+                    {"role": "assistant", "content": raw},
+                    {"role": "user", "content": prompt_rag_json_correction},
+                ],
+                temperature=0.0,
+                max_tokens=2500,
+                response_format={"type": "json_object"},
+            ).choices[0].message.content or ""
+            final_result = safe_extract_json(corrected_raw)
+            if final_result is not None:
+                return final_result
+            _debug_print_raw_json("REPORT_CORRECTION_FAILED", corrected_raw)
+            return {"error": "Failed to parse report after correction"}
 
         except Exception as e:
-            print(f"❌ Error during legacy report generation: {e}")
-            return {"error": f"final_report_failed: {e}"}
-
-    def _cleanup_assessments(self, report: Dict) -> Dict:
-        try:
-            comps = report.get("core_competency_analysis", [])
-            for c in comps:
-                a = c.get("assessment")
-                if isinstance(a, str):
-                    c["assessment"] = a.replace(",", "").strip()
-        except Exception:
-            pass
-        return report
-
-    def print_final_report(self, report: Dict):
-        if not report:
-            return
-        # ... (logic for printing the final report)
-        print("Final report printed.")
-
-    def print_individual_analysis(self, analysis: Dict, question_num: str):
-        if "error" in analysis:
-            print(f"\n❌ Analysis error: {analysis['error']}")
-            return
-        # ... (logic for printing individual analysis)
-        print(f"Printed analysis for question {question_num}")
-
+            return {"error": f"report_build_failed: {e}"}

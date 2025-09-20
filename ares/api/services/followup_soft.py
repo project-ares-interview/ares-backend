@@ -31,6 +31,8 @@ def _deficit_hint(turn_type: str, answer: str) -> str:
         return "핵심 강점/최근 사례/역할 키워드가 부족하면 가벼운 구체화 유도."
     if turn_type == "intro:motivation":
         return "회사/직무 특정 포인트(제품/문화/문제영역) 언급이 없으면 한 가지 보완 유도."
+    if turn_type == "intro:combined":
+        return "답변에 자기소개(강점)와 지원동기(회사/직무 관심) 중 부족한 내용이 있다면, 해당 부분을 구체화하도록 유도하는 질문을 생성하세요."
     return ""
 
 def _too_short(turn_type: str, answer: str) -> bool:
@@ -38,6 +40,7 @@ def _too_short(turn_type: str, answer: str) -> bool:
     if turn_type == "icebreak": return n < MIN_LEN_ICEBREAK
     if turn_type == "intro:self": return n < MIN_LEN_INTRO
     if turn_type == "intro:motivation": return n < MIN_LEN_MOTIVE
+    if turn_type == "intro:combined": return n < MIN_LEN_INTRO  # 자기소개 최소 길이를 재사용
     return False
 
 def _template_pool(turn_type: str, company: str, role: str):

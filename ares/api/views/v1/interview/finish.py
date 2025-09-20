@@ -61,17 +61,34 @@ Marks an interview session as finished and triggers the generation of the final 
 
         turns = session.turns.order_by("turn_index").all()
         transcript = []
-        # This logic to build transcript can be simplified or improved
-        for t in turns:
-            if t.role == InterviewTurn.Role.INTERVIEWER:
-                transcript.append({"question": t.question})
-            elif transcript and t.role == InterviewTurn.Role.CANDIDATE:
-                transcript[-1].update({"answer": t.answer, "analysis": t.scores})
+        structured_scores = []
         
-        resume_feedback = rag_bot.analyze_resume_with_rag()
-        final_report = rag_bot.generate_detailed_final_report(
-            transcript, rag_info.get("interview_plan", {}), resume_feedback
-        )
+        # 더 안정적인 transcript 및 structured_scores 생성 로직
+        current_turn = {}
+        for t in turns:
+            if t.role == "INTERVIEWER":
+                # 이전 턴이 완성되지 않았다면 transcript에 추가
+                if current_turn:
+                    transcript.append(current_turn)
+                current_turn = {"question": t.question, "answer": None, "analysis": None}
+            elif t.role == "CANDIDATE":
+                if not current_turn: # CANDIDATE 턴이 먼저 시작되는 예외 케이스 처리
+                    current_turn = {"question": t.question, "answer": t.answer, "analysis": t.scores}
+                else:
+                    current_turn["answer"] = t.answer
+                    current_turn["analysis"] = t.scores
+                
+                if t.scores: # 분석 점수가 있는 경우 structured_scores에 추가
+                    structured_scores.append(t.scores)
+                
+                transcript.append(current_turn)
+                current_turn = {} # 턴 완성 후 초기화
+
+        # 마지막 턴이 INTERVIEWER로 끝나서 추가되지 않은 경우 처리
+        if current_turn and "question" in current_turn:
+            transcript.append(current_turn)
+
+        final_report = rag_bot.build_final_report(transcript, structured_scores)
 
         session.status = InterviewSession.Status.FINISHED
         session.finished_at = timezone.now()
