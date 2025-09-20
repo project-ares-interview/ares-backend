@@ -1,32 +1,40 @@
+# ares/api/services/rag/bot/base.py
 """
 Base class for the RAG Interview Bot, handling common initialization and low-level API calls.
 """
 
 import json
 from typing import Any, Dict, Optional
+from functools import lru_cache
 
 from django.conf import settings
 from openai import AzureOpenAI
 
 from ares.api.services.prompts import INTERVIEWER_PERSONAS
+from ares.api.utils.ai_utils import safe_extract_json
 from ..new_azure_rag_llamaindex import AzureBlobRAGSystem
 from .utils import _truncate, _escape_special_chars
+
+@lru_cache(maxsize=1)
+def get_rag_system_default() -> AzureBlobRAGSystem:
+    print("\n📊 Initializing Azure RAG System Connection (Singleton)...")
+    return AzureBlobRAGSystem(
+        container_name="interview-data",
+        index_name="gia-report-index",
+    )
 
 class RAGBotBase:
     def __init__(
         self,
         company_name: str,
         job_title: str,
-        container_name: str,
-        index_name: str,
         difficulty: str = "normal",
         interviewer_mode: str = "team_lead",
         ncs_context: Optional[dict] = None,
         jd_context: str = "",
         resume_context: str = "",
         research_context: str = "",
-        *,
-        sync_on_init: bool = False,
+        rag_system: Optional[AzureBlobRAGSystem] = None,
         **kwargs,
     ):
         print(f"🤖 RAG Bot Base System Initializing (Interviewer: {interviewer_mode})...")
@@ -62,35 +70,13 @@ class RAGBotBase:
             api_version=self.api_version,
         )
 
-        print("\n📊 Initializing Azure RAG System Connection...")
-        self.rag_system = None
-        self.rag_ready = False
+        self.rag_system = rag_system or get_rag_system_default()
+        self.rag_ready = self.rag_system.is_ready()
         self._bizinfo_cache: Dict[str, str] = {}
-
-        try:
-            self.rag_system = AzureBlobRAGSystem(container_name=container_name, index_name=index_name)
-            blobs = list(self.rag_system.container_client.list_blobs())
-            if not blobs:
-                print(f"⚠️ WARNING: Azure Blob container '{container_name}' is empty.")
-                return
-
-            print(f"✅ Azure RAG system ready, based on {len(blobs)} documents.")
-            if sync_on_init:
-                print("🔄 Syncing Azure AI Search index (sync_on_init=True)...")
-                self.rag_system.sync_index(company_name_filter=self.company_name)
-            else:
-                print("⏩ Skipping index sync (sync_on_init=False). Should be managed externally.")
-
-            self.rag_ready = True
-
-        except Exception as e:
-            print(f"❌ Failed to connect to RAG system: {e}")
 
     @staticmethod
     def _ensure_ncs_dict(ncs_ctx: Any) -> Dict[str, Any]:
-        """
-        Ensures the NCS context is always a dictionary, regardless of input type.
-        """
+        """NCS 컨텍스트를 항상 dict로 보정"""
         if isinstance(ncs_ctx, dict):
             return ncs_ctx
         if isinstance(ncs_ctx, str):
@@ -103,25 +89,26 @@ class RAGBotBase:
                 return {"ncs": [], "ncs_query": ncs_ctx}
         return {"ncs": [], "ncs_query": ""}
 
-    def _chat_json(self, prompt: str, temperature: float = 0.2, max_tokens: int = 2000) -> str:
+    def _chat_json(self, prompt: str, temperature: float = 0.2, max_tokens: int = 2000) -> Dict[str, Any]:
         sys_msg = {"role": "system", "content": "You must return ONLY a single valid JSON object. No markdown/code fences/commentary."}
         messages = [sys_msg, {"role": "user", "content": prompt}]
         kwargs = dict(model=self.model, messages=messages, temperature=temperature, max_tokens=max_tokens)
-
+        
+        raw_content = ""
         try:
             kwargs["response_format"] = {"type": "json_object"}
             resp = self.client.chat.completions.create(**kwargs)
-            return (resp.choices[0].message.content or "").strip()
+            raw_content = (resp.choices[0].message.content or "").strip()
+            return safe_extract_json(raw_content)
         except Exception:
-            resp = self.client.chat.completions.create(
-                model=self.model,
-                messages=[sys_msg, {"role": "user", "content": prompt + "\n\nReturn ONLY valid JSON." }],
-                temperature=temperature,
-                max_tokens=max_tokens,
-            )
-            return (resp.choices[0].message.content or "").strip()
+            # 일부 모델 초기 콜에서 json_object 실패시 재시도
+            kwargs["messages"] = [sys_msg, {"role": "user", "content": prompt + "\n\nReturn ONLY valid JSON." }]
+            kwargs["response_format"] = {"type": "json_object"}
+            resp = self.client.chat.completions.create(**kwargs)
+            raw_content = (resp.choices[0].message.content or "").strip()
+            return safe_extract_json(raw_content)
 
-    def _chat_text(self, prompt: str, temperature: float = 0.4, max_tokens: int = 300) -> str:
+    def _chat(self, prompt: str, temperature: float = 0.4, max_tokens: int = 300) -> str:
         resp = self.client.chat.completions.create(
             model=self.model,
             messages=[{"role": "user", "content": prompt}],
@@ -131,6 +118,7 @@ class RAGBotBase:
         return (resp.choices[0].message.content or "").strip()
 
     def _get_company_business_info(self) -> str:
+        """회사/직무 맥락 요약 (RAG)"""
         if not self.rag_ready:
             return ""
         try:
@@ -149,4 +137,3 @@ class RAGBotBase:
         except Exception as e:
             print(f"⚠️ Failed to retrieve company info: {e}")
             return ""
-

@@ -67,13 +67,10 @@ CACHE_TTLS = {
 # 안전/저비용 템플릿 + LLM 폴백 헬퍼 (운영 안정화)
 # -----------------------------------------------------------------------------
 ICEBREAK_TEMPLATES_KO = [
-    "오시느라 고생 많으셨습니다. 컨디션은 어떠세요?",
-    "처음이라 긴장되실 수 있어요. 편하게 말씀해주셔도 됩니다.",
-    "오늘 인터뷰는 편안한 분위기로 진행하겠습니다. 준비되셨으면 시작할게요.",
-    "최근에 즐겁게 읽으신 책이나 인상 깊었던 콘텐츠가 있으신가요?",
-    "오늘 오시는 길은 어떠셨나요? 특별한 일은 없으셨고요?",
-    "면접 전에 긴장을 푸는 본인만의 방법이 있으신가요?",
-    "주말에는 주로 어떤 활동을 하시면서 시간을 보내시나요?"
+    "오늘 오시는 길은 어떠셨나요?",
+    "오늘 날씨가 참 덥죠?",
+    "여기까지 오시느라 고생 많으셨습니다. 오시는 길에 특별한 일은 없으셨나요?",
+    "먼 길 오시느라 고생하셨습니다. 물 한잔 드릴까요?",
 ]
 INTRO_TEMPLATE_KO = "간단히 자기소개 부탁드립니다."
 MOTIVE_TEMPLATE_KO = "이번 직무에 지원하신 동기를 말씀해 주세요."
@@ -85,13 +82,8 @@ WRAPUP_TEMPLATES_KO = [
 
 # llm_call: (prompt_str: str) -> Dict[str, Any] 를 기대 (JSON 파싱 실패 시 예외 권장)
 def make_icebreak_question_llm_or_template(llm_call: Callable[[str], Dict[str, Any]]) -> str:
-    candidate = random.choice(ICEBREAK_TEMPLATES_KO)
-    try:
-        out = llm_call(prompt_icebreaker_question)
-        q = (out or {}).get("question", "").strip()
-        return q or candidate
-    except Exception:
-        return candidate
+    # LLM 호출 대신, 예측 가능한 스몰 토크를 위해 템플릿에서만 선택
+    return random.choice(ICEBREAK_TEMPLATES_KO)
 
 def make_intro_question_llm_or_template(llm_call: Callable[[str], Dict[str, Any]]) -> str:
     try:

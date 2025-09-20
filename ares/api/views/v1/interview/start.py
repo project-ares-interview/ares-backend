@@ -25,13 +25,9 @@ except ImportError:
 log = get_logger(__name__)
 
 # Constants from the original file
-FALLBACK_QUESTION = (
-    "기아의 생산운영/공정기술 관점에서 효율화가 필요하다고 판단한 영역을 한 가지 선정해, "
-    "개선 아이디어와 기대 효과(예: 리드타임, 불량률, 설비가동률 지표)를 근거와 함께 설명해 주시겠습니까?"
-)
+FALLBACK_QUESTION = "가벼운 아이스브레이킹으로 시작해볼게요. 최근에 재미있게 본 콘텐츠가 있나요?"
 DEFAULT_FSM: Dict[str, Any] = {
     "stage_idx": 0, "question_idx": 0, "followup_idx": 0,
-    "main_question_index": 0,
     "pending_followups": [], "done": False,
 }
 
@@ -74,30 +70,6 @@ def _ensure_ncs_dict(ncs_ctx: Any) -> Dict[str, Any]:
         return {"ncs_query": ncs_ctx, "ncs": []}
     return {"ncs_query": "", "ncs": []}
 
-def _extract_first_question_from_plan(interview_plan_data: dict | list | None) -> str | None:
-    if not interview_plan_data: return None
-    plan_list = interview_plan_data.get("interview_plan") if isinstance(interview_plan_data, dict) else interview_plan_data
-    if not isinstance(plan_list, list) or not plan_list: return None
-    first_stage = plan_list[0]
-    if not isinstance(first_stage, dict): return None
-    questions = first_stage.get("questions")
-    if isinstance(questions, list) and questions:
-        q0 = questions[0]
-        # Case 1: It's a dictionary like {"question": "..."}
-        if isinstance(q0, dict):
-            return q0.get("question", "").strip() or None
-        # Case 2: It's a string that might be a plain question or a JSON string
-        if isinstance(q0, str):
-            s = q0.strip()
-            try:
-                data = json.loads(s)
-                if isinstance(data, dict) and "question" in data:
-                    return str(data["question"]).strip()
-            except json.JSONDecodeError:
-                pass  # Not a JSON string, so treat as plain text below
-            return s if s else None
-    return None
-
 
 class InterviewStartAPIView(APIView):
     authentication_classes: list = []
@@ -113,7 +85,7 @@ It generates the first question and returns a new session ID.
         responses=InterviewStartOut,
     )
     def post(self, request, *args, **kwargs):
-        rid = _reqid()
+        trace_id = _reqid()
         try:
             s = InterviewStartIn(data=request.data)
             s.is_valid(raise_exception=True)
@@ -132,33 +104,40 @@ It generates the first question and returns a new session ID.
             interviewer_mode = v.get("interviewer_mode", "team_lead")
             ncs_ctx = _ensure_ncs_dict(v.get("ncs_context")) or _make_ncs_context(meta)
 
-            log.info(f"[{rid}] 🧠 {company_name} 맞춤 면접 계획 설계 (난이도:{difficulty}, 면접관:{interviewer_mode})")
+            log.info(f"[{trace_id}] 🧠 {company_name} 맞춤 면접 계획 설계 (난이도:{difficulty}, 면접관:{interviewer_mode})")
 
             rag_bot = RAGInterviewBot(
-                company_name=company_name, job_title=job_title, container_name=container_name,
-                index_name=index_name, difficulty=difficulty, interviewer_mode=interviewer_mode,
+                company_name=company_name, job_title=job_title,
+                difficulty=difficulty, interviewer_mode=interviewer_mode,
                 ncs_context=ncs_ctx, jd_context=v.get("jd_context", ""),
                 resume_context=v.get("resume_context", ""), research_context=v.get("research_context", ""),
-                sync_on_init=False,
             )
 
             if not getattr(rag_bot, "rag_ready", True):
                 return Response({"error": "RAG 시스템이 준비되지 않았습니다."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-            interview_plan_data = rag_bot.design_interview_plan() or {}
-            question_text = _extract_first_question_from_plan(interview_plan_data) or FALLBACK_QUESTION
-            if question_text == FALLBACK_QUESTION:
-                log.warning(f"[{rid}] 첫 질문 추출 실패 → 폴백 질문 사용")
+            plans = rag_bot.design_interview_plan()
 
-            log.info(f"[{rid}] ✅ 구조화 면접 계획 수립 완료")
+            # get_first_question은 RAGInterviewBot 내부의 self.plan (정규화된 계획)을 사용합니다.
+            first = rag_bot.get_first_question()
+
+            if not first:
+                log.warning(f"[{trace_id}] 첫 질문 추출 실패 → 폴백 질문 사용")
+                first = {"id": "FALLBACK-1", "question": FALLBACK_QUESTION}
+
+            log.info(f"[{trace_id}] ✅ 구조화 면접 계획 수립 완료")
 
             rag_context_to_save = {
-                "interview_plan": interview_plan_data, "company_name": company_name,
+                "interview_plans": plans,  # raw_v2_plan과 normalized_plan이 모두 포함된 dict
+                "company_name": company_name,
                 "job_title": job_title, "container_name": container_name, "index_name": index_name,
             }
 
+            # FSM 초기화: 메인 질문은 0,0 부터 시작
             fsm = dict(DEFAULT_FSM)
-            fsm["main_question_index"] = 1
+            fsm["stage_idx"] = 0
+            fsm["question_idx"] = 0
+
             session = InterviewSession.objects.create(
                 user=request.user if getattr(request.user, "is_authenticated", False) else None,
                 jd_context=v.get("jd_context", ""), resume_context=v.get("resume_context", ""),
@@ -169,11 +148,11 @@ It generates the first question and returns a new session ID.
             )
 
             turn = InterviewTurn.objects.create(
-                session=session, turn_index=0, turn_label="1", role=InterviewTurn.Role.INTERVIEWER, question=question_text,
+                session=session, turn_index=0, turn_label=first.get("id", "1"), role=InterviewTurn.Role.INTERVIEWER, question=first["question"],
             )
 
             out = InterviewStartOut({
-                "message": "Interview session started successfully.", "question": question_text,
+                "message": "Interview session started successfully.", "question": first["question"],
                 "session_id": str(session.id), "turn_label": turn.turn_label,
                 "context": session.context or {}, "language": session.language,
                 "difficulty": session.difficulty, "interviewer_mode": session.interviewer_mode,
@@ -181,5 +160,5 @@ It generates the first question and returns a new session ID.
             return Response(out.data, status=status.HTTP_201_CREATED)
 
         except Exception as e:
-            log.error(f"[{rid}] InterviewStart ERROR: {e}\n{traceback.format_exc()}")
+            log.error(f"[{trace_id}] InterviewStart ERROR: {e}\n{traceback.format_exc()}")
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)

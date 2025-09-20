@@ -27,7 +27,7 @@ prompt_json_output_only = "\n출력: JSON만. 스키마 외 텍스트 금지.\n"
 INTERVIEWER_PERSONAS = {
     "team_lead": {
         "persona_description": (
-            "당신은 {company_name} {job_title} 팀의 실무 리더(팀장)입니다. "
+            "당신은 {company_name} {job_title} 직무의 팀장입니다. "
             "목표는 지원자의 '실무 기여 가능성'을 검증하는 것입니다."
         ),
         "evaluation_focus": (

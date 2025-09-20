@@ -207,13 +207,13 @@ prompt_rag_answer_analysis = (
 [자료 1] 내부: {internal_check}
 [자료 2] 웹: {web_result}
 [출력]
-{
+{{
   "claims_checked": [
-    {"claim": "...", "evidence_source": "[자료 1 기반|자료 2 웹 검색 기반]", "verdict": "지원|반박|불충분", "rationale": "..."}
+    {{"claim": "...", "evidence_source": "[자료 1 기반|자료 2 웹 검색 기반]", "verdict": "지원|반박|불충분", "rationale": "..."}}
   ],
   "analysis": "... (300~600자)",
   "feedback": "... (3~5문장)"
-}
+}}
 """
     + prompt_json_output_only
 )

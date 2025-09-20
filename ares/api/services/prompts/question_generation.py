@@ -27,30 +27,31 @@ prompt_followup_v2 = (
     SYSTEM_RULES
     + """
 {persona_description}
-목표: '직전 답변(latest_answer)'의 핵심 키워드를 추출하고, 해당 키워드를 근거로 "메인 질문 1개 + 꼬리질문 1~3개"를 생성합니다.
-키워드가 부실하면 일반 목적의 안전한 꼬리질문으로 폴백합니다.
+목표: '직전 답변 분석 결과(analysis_summary)'를 바탕으로 지원자의 역량을 검증하거나 주장의 근거를 확인하는 "꼬리질문 1~2개"를 생성합니다.
+분석 결과가 없거나 부실하면 '직전 답변(latest_answer)'을 참고하여 일반적인 질문으로 폴백합니다.
 
 [입력]
 - phase: {phase}                # "intro" | "core" | "wrapup"
 - question_type: {question_type}# "icebreaking|self_intro|motivation|star|competency|case|system|hard|wrapup"
 - objective: {objective}
 - latest_answer: {latest_answer}
+- analysis_summary: {analysis_summary} # 답변 분석 요약 (피드백, 강점, 약점 등)
 - company_context: {company_context}
 - ncs: {ncs}
 - kpi: {kpi}
 
 [출력 스키마]
 {
-  "question": "메인 질문 1개(≤200자)",
-  "followups": ["꼬리1","꼬리2"],
-  "rationale": "키워드 기반 혹은 폴백 사유(200자 이내)",
+  "followups": ["꼬리질문1","꼬리질문2"],
+  "rationale": "무엇을 검증하기 위한 질문인지에 대한 근거(200자 이내)",
   "fallback_used": false,
-  "keywords": ["키워드1","키워드2"]
+  "keywords": ["답변의 핵심 키워드1","키워드2"]
 }
 규칙:
-- followups는 1~3개
-- latest_answer가 빈약하여 의미 있는 키워드를 못 찾으면 fallback_used=true로 표기하고, 안전한 일반 꼬리질문을 생성
-- 민감/사생활/차별 유발 소재 금지
+- followups는 1~2개로 제한합니다.
+- analysis_summary를 최우선으로 활용하여 질문을 생성하세요.
+- latest_answer가 빈약하여 의미 있는 질문 생성이 어려우면 fallback_used=true로 표기하고, 안전한 일반 꼬리질문을 생성하세요.
+- 민감/사생활/차별 유발 소재는 절대 금지입니다.
 """
     + prompt_json_output_only
 )
@@ -125,10 +126,13 @@ prompt_soft_followup = (
 - 상황 맥락을 부드럽게 반영
 
 [컨텍스트]
-- stage: {stage}               # "icebreak" | "intro:self" | "intro:motivation"
+- stage: {stage}               # "icebreak" | "intro:self" | "intro:motivation" | "intro:combined"
 - company: {company_name}
 - role: {job_title}
 - persona: {persona_description}
+
+[분석 규칙]
+- stage가 "intro:combined"인 경우: 답변에 자기소개(강점/역량)와 지원동기(회사/직무 관심)가 모두 포함되었는지 확인. 둘 중 부족한 요소 하나만 가볍게 구체화하도록 유도. 둘 다 충분하면 "네, 잘 들었습니다." 와 같은 간단한 전환 문구 생성.
 
 [원 질문]
 {origin_question}
