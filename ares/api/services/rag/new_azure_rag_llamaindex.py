@@ -105,6 +105,7 @@ class AzureBlobRAGSystem:
         print(f"🚀 Azure 통합 RAG 시스템 초기화 (컨테이너: {container_name}, 인덱스: {index_name})...")
         self.container_name = container_name
         self.index_name = index_name
+        self.query_engine = None
 
         self._require_env([
             "AZURE_OPENAI_ENDPOINT",
@@ -150,6 +151,10 @@ class AzureBlobRAGSystem:
 
         # 메타 저장소
         self.meta_store = _MetaStore()
+
+    def is_ready(self) -> bool:
+        """RAG 시스템이 쿼리를 수행할 준비가 되었는지 확인"""
+        return self.query_engine is not None
 
     # -------------------------- 내부 설정 --------------------------
     def _require_env(self, keys: List[str]):

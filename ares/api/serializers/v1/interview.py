@@ -15,29 +15,74 @@ class MetaIn(serializers.Serializer):
 
 # ===== Start =====
 class InterviewStartIn(serializers.Serializer):
-    jd_context = serializers.CharField(required=True, allow_blank=False, trim_whitespace=True)
-    resume_context = serializers.CharField(required=True, allow_blank=False, trim_whitespace=True)
-    research_context = serializers.CharField(required=False, allow_blank=True, default="")
-    difficulty = serializers.ChoiceField(choices=["easy", "normal", "hard"], required=False, default="normal")
-    language = serializers.ChoiceField(choices=["ko", "en"], required=False, default="ko")
-    interviewer_mode = serializers.ChoiceField(choices=["team_lead", "executive"], required=False, default="team_lead")
-    meta = MetaIn(required=False, default=dict)
-    ncs_context = serializers.JSONField(required=False, default=dict)
+    jd_context = serializers.CharField(
+        required=True,
+        allow_blank=False,
+        trim_whitespace=True,
+        help_text="The full text of the job description."
+    )
+    resume_context = serializers.CharField(
+        required=True,
+        allow_blank=False,
+        trim_whitespace=True,
+        help_text="The full text of the candidate's resume."
+    )
+    research_context = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Optional research material about the company or role."
+    )
+    difficulty = serializers.ChoiceField(
+        choices=["easy", "normal", "hard"],
+        required=False,
+        default="normal",
+        help_text="The desired difficulty level for the interview."
+    )
+    language = serializers.ChoiceField(
+        choices=["ko", "en"],
+        required=False,
+        default="ko",
+        help_text="The language for the interview."
+    )
+    interviewer_mode = serializers.ChoiceField(
+        choices=["team_lead", "executive"],
+        required=False,
+        default="team_lead",
+        help_text="The persona of the AI interviewer."
+    )
+    meta = MetaIn(
+        required=False,
+        default=dict,
+        help_text="Additional metadata about the company and role."
+    )
+    ncs_context = serializers.JSONField(
+        required=False,
+        default=dict,
+        help_text="NCS (National Competency Standards) context for the interview."
+    )
 
 class InterviewStartOut(serializers.Serializer):
     message = serializers.CharField()
     question = serializers.CharField()
     session_id = serializers.UUIDField()
-    turn_index = serializers.IntegerField()
+    turn_label = serializers.CharField(help_text="The label of the turn, e.g., '1'.")
     context = serializers.JSONField(required=False)
     language = serializers.CharField(required=False, default="ko")
     difficulty = serializers.CharField(required=False, default="normal")
-    interviewer_mode = serializers.CharField(required=False, default="team_lead")  # ✅ 뷰와 일치
+    interviewer_mode = serializers.CharField(required=False, default="team_lead")
 
 # ===== Next =====
 class InterviewNextIn(serializers.Serializer):
-    session_id = serializers.UUIDField(required=True)
-    include_followups = serializers.BooleanField(required=False, default=True)
+    session_id = serializers.UUIDField(
+        required=True,
+        help_text="The unique identifier for the active interview session."
+    )
+    include_followups = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text="Whether to include follow-up questions in the response."
+    )
 
 @extend_schema_serializer(
     examples=[
@@ -45,9 +90,9 @@ class InterviewNextIn(serializers.Serializer):
             'Next Question',
             value={
                 "session_id": "a1b2c3d4-e5f6-7890-1234-567890abcdef",
-                "turn_index": 2,
+                "turn_label": "2",
                 "question": "Tell me about a time you handled a difficult stakeholder.",
-                "followups": [],              # ✅ 뷰 응답과 동일
+                "followups": [],
                 "done": False,
             },
             response_only=True,
@@ -56,7 +101,7 @@ class InterviewNextIn(serializers.Serializer):
             'Interview Finished',
             value={
                 "session_id": "a1b2c3d4-e5f6-7890-1234-567890abcdef",
-                "turn_index": None,
+                "turn_label": None,
                 "question": None,
                 "followups": [],
                 "done": True,
@@ -67,16 +112,27 @@ class InterviewNextIn(serializers.Serializer):
 )
 class InterviewNextOut(serializers.Serializer):
     session_id = serializers.UUIDField()
-    turn_index = serializers.IntegerField(allow_null=True)
+    turn_label = serializers.CharField(allow_null=True, help_text="The label of the turn, e.g., '2' or '2-1'.")
     question = serializers.CharField(allow_null=True)
-    followups = serializers.ListField(child=serializers.CharField(), required=False, default=list)  # ✅ 추가
+    followups = serializers.ListField(child=serializers.CharField(), required=False, default=list)
     done = serializers.BooleanField()
 
 # ===== Answer =====
 class InterviewAnswerIn(serializers.Serializer):
-    session_id = serializers.UUIDField(required=True)
-    question = serializers.CharField(required=True)
-    answer = serializers.CharField(required=True, allow_blank=False, trim_whitespace=True)
+    session_id = serializers.UUIDField(
+        required=True,
+        help_text="The unique identifier for the active interview session."
+    )
+    question = serializers.CharField(
+        required=True,
+        help_text="The question that was asked to the candidate."
+    )
+    answer = serializers.CharField(
+        required=True,
+        allow_blank=False,
+        trim_whitespace=True,
+        help_text="The candidate's answer to the question. Must be at least 5 characters long."
+    )
 
     def validate_answer(self, v: str) -> str:
         v = (v or "").strip()
@@ -85,13 +141,17 @@ class InterviewAnswerIn(serializers.Serializer):
         return v
 
 class InterviewAnswerOut(serializers.Serializer):
-    analysis = serializers.DictField()  # ✅ 뷰에서 dict 그대로 반환하므로 유연화
+    analysis = serializers.DictField()
     followups_buffered = serializers.ListField(child=serializers.CharField())
     message = serializers.CharField()
+    turn_label = serializers.CharField(help_text="The label of the answer that was just submitted, e.g., '1-1'.")
 
 # ===== Finish =====
 class InterviewFinishIn(serializers.Serializer):
-    session_id = serializers.UUIDField(required=True)
+    session_id = serializers.UUIDField(
+        required=True,
+        help_text="The unique identifier for the interview session to be finished."
+    )
 
 class InterviewFinishOut(serializers.Serializer):
     report_id = serializers.CharField()

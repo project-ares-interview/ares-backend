@@ -85,16 +85,22 @@ def safe_extract_json(text: str, default: Any = None) -> Any:
         return default if default is not None else {}
 
     original_text = text
+    
+    try:
+        return json.loads(text)
+    except Exception:
+        pass
 
     # 1) ```json ... ``` 블록 우선 추출 (non-greedy)
     fence = re.search(r'```json\s*(\{.*?\})\s*```', text, re.DOTALL | re.IGNORECASE)
     if fence:
         text = fence.group(1)
     else:
-        # 2) 가장 큰 JSON 오브젝트 시도 (greedy)
-        obj = re.search(r"\{.*\}", text, re.DOTALL)
-        if obj:
-            text = obj.group(0)
+        # 2) 가장 마지막에 나오는 JSON 객체를 non-greedy하게 추출
+        matches = list(re.finditer(r"\{.*?\}", text, re.DOTALL))
+        if matches:
+            text = matches[-1].group(0)
+
 
     # 3) 정규화/치유
     # 스마트 따옴표 등 교정

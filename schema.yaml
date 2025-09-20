@@ -339,6 +339,51 @@ paths:
               schema:
                 $ref: '#/components/schemas/UserDetail'
           description: ''
+  /api/v1/calendar/:
+    get:
+      operationId: api_v1_calendar_retrieve
+      description: |-
+        [최종 업그레이드 버전]
+        '비밀 표식'이 있는 캘린더 일정만 필터링하고,
+        날짜/시간을 '깔끔한 형식'으로 가공하여 반환합니다.
+      tags:
+      - api
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/calendar/add-event/:
+    post:
+      operationId: api_v1_calendar_add_event_create
+      description: '[API] 캘린더에 새 일정을 추가할 때, 제목에 ''비밀 표식''을 붙입니다.'
+      tags:
+      - api
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/calendar/delete-event/{event_id}/:
+    delete:
+      operationId: api_v1_calendar_delete_event_destroy
+      description: '[API 메뉴 3] 캘린더에서 특정 이벤트를 삭제합니다.'
+      parameters:
+      - in: path
+        name: event_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - api
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '204':
+          description: No response body
   /api/v1/cover-letters/:
     get:
       operationId: api_v1_cover_letters_list
@@ -522,9 +567,59 @@ paths:
               schema:
                 $ref: '#/components/schemas/Example'
           description: ''
-  /api/v1/interview/find-companies/:
+  /api/v1/google/authorize/:
+    get:
+      operationId: api_v1_google_authorize_retrieve
+      description: 사용자를 Google 인증 페이지로 보냅니다.
+      tags:
+      - api
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/interviews/admin/sync-index/:
     post:
-      operationId: api_v1_interview_find_companies_create
+      operationId: api_v1_interviews_admin_sync_index_create
+      tags:
+      - api
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/interviews/answer/:
+    post:
+      operationId: api_v1_interviews_answer_create
+      summary: Submit an Answer
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InterviewAnswerIn'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/InterviewAnswerIn'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/InterviewAnswerIn'
+        required: true
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InterviewAnswerOut'
+          description: ''
+  /api/v1/interviews/find-companies/:
+    post:
+      operationId: api_v1_interviews_find_companies_create
       description: 키워드로 계열사 목록을 검색하는 API
       summary: Find Affiliate Companies
       tags:
@@ -551,39 +646,9 @@ paths:
               schema:
                 $ref: '#/components/schemas/FindCompaniesResponse'
           description: ''
-  /api/v1/interviews/answer/:
-    post:
-      operationId: api_v1_interviews_answer_create
-      description: Submits a candidate's answer to a question, triggers analysis,
-        and buffers potential follow-up questions.
-      summary: Submit an Answer
-      tags:
-      - api
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/InterviewAnswerIn'
-          application/x-www-form-urlencoded:
-            schema:
-              $ref: '#/components/schemas/InterviewAnswerIn'
-          multipart/form-data:
-            schema:
-              $ref: '#/components/schemas/InterviewAnswerIn'
-        required: true
-      security:
-      - {}
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/InterviewAnswerOut'
-          description: ''
   /api/v1/interviews/finish/:
     post:
       operationId: api_v1_interviews_finish_create
-      description: Ends the session, generates the final report, and stores it.
       summary: Finish an Interview Session
       tags:
       - api
@@ -611,9 +676,6 @@ paths:
   /api/v1/interviews/next/:
     post:
       operationId: api_v1_interviews_next_create
-      description: Based on the interview's state machine (FSM), determines and returns
-        the next question. This could be a follow-up or the next main question from
-        the plan.
       summary: Get Next Question
       tags:
       - api
@@ -643,6 +705,7 @@ paths:
                     session_id: a1b2c3d4-e5f6-7890-1234-567890abcdef
                     turn_index: 2
                     question: Tell me about a time you handled a difficult stakeholder.
+                    followups: []
                     done: false
                   summary: Next Question
                 InterviewFinished:
@@ -650,14 +713,13 @@ paths:
                     session_id: a1b2c3d4-e5f6-7890-1234-567890abcdef
                     turn_index: null
                     question: null
+                    followups: []
                     done: true
                   summary: Interview Finished
           description: ''
   /api/v1/interviews/report/{session_id}/:
     get:
       operationId: api_v1_interviews_report_retrieve
-      description: Retrieves the final report for a given session ID. If the report
-        is not already generated, it will be created on-demand.
       summary: Get Interview Report
       parameters:
       - in: path
@@ -680,8 +742,6 @@ paths:
   /api/v1/interviews/start/:
     post:
       operationId: api_v1_interviews_start_create
-      description: Creates a new interview session based on the provided context and
-        returns the first question.
       summary: Start a New Interview Session
       tags:
       - api
@@ -3055,18 +3115,6 @@ components:
         * `strong_hire` - strong_hire
         * `hire` - hire
         * `no_hire` - no_hire
-    InterviewAnswerAnalysis:
-      type: object
-      properties:
-        structured:
-          type: object
-          additionalProperties: {}
-        rag_analysis:
-          type: object
-          additionalProperties: {}
-      required:
-      - rag_analysis
-      - structured
     InterviewAnswerIn:
       type: object
       properties:
@@ -3085,7 +3133,8 @@ components:
       type: object
       properties:
         analysis:
-          $ref: '#/components/schemas/InterviewAnswerAnalysis'
+          type: object
+          additionalProperties: {}
         followups_buffered:
           type: array
           items:
@@ -3120,6 +3169,9 @@ components:
         session_id:
           type: string
           format: uuid
+        include_followups:
+          type: boolean
+          default: true
       required:
       - session_id
     InterviewNextOut:
@@ -3134,6 +3186,10 @@ components:
         question:
           type: string
           nullable: true
+        followups:
+          type: array
+          items:
+            type: string
         done:
           type: boolean
       required:
@@ -3315,10 +3371,10 @@ components:
     MetaIn:
       type: object
       properties:
-        company:
+        company_name:
           type: string
           default: ''
-        name:
+        person_name:
           type: string
           default: ''
         division:

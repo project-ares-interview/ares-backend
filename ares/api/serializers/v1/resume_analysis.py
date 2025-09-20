@@ -3,24 +3,75 @@ from rest_framework import serializers
 from drf_spectacular.utils import extend_schema_serializer, OpenApiExample
 
 class CompanyDataSerializer(serializers.Serializer):
-    company_name = serializers.CharField(max_length=100)
-    department = serializers.CharField(max_length=100, required=False, allow_blank=True)
-    job_title = serializers.CharField(max_length=100)
-    location = serializers.CharField(max_length=100, required=False, allow_blank=True)
-    kpi = serializers.ListField(child=serializers.CharField(max_length=100), required=False, default=list)
-    requirements = serializers.ListField(child=serializers.CharField(max_length=500), required=False, default=list)
+    company_name = serializers.CharField(
+        max_length=100,
+        help_text="The name of the company."
+    )
+    department = serializers.CharField(
+        max_length=100,
+        required=False,
+        allow_blank=True,
+        help_text="The specific department within the company."
+    )
+    job_title = serializers.CharField(
+        max_length=100,
+        help_text="The title of the job."
+    )
+    location = serializers.CharField(
+        max_length=100,
+        required=False,
+        allow_blank=True,
+        help_text="The location of the job."
+    )
+    kpi = serializers.ListField(
+        child=serializers.CharField(max_length=100),
+        required=False,
+        default=list,
+        help_text="Key Performance Indicators for the role."
+    )
+    requirements = serializers.ListField(
+        child=serializers.CharField(max_length=500),
+        required=False,
+        default=list,
+        help_text="Specific requirements for the job."
+    )
 
 class ResumeAnalysisInSerializer(serializers.Serializer):
-    jd_file = serializers.FileField(required=False, allow_null=True)
-    resume_file = serializers.FileField(required=False, allow_null=True)
-    research_file = serializers.FileField(required=False, allow_null=True)
+    jd_file = serializers.FileField(
+        required=False,
+        allow_null=True,
+        help_text="Upload the job description file (e.g., PDF, DOCX)."
+    )
+    resume_file = serializers.FileField(
+        required=False,
+        allow_null=True,
+        help_text="Upload the resume file (e.g., PDF, DOCX)."
+    )
+    research_file = serializers.FileField(
+        required=False,
+        allow_null=True,
+        help_text="Upload a research material file about the company (optional)."
+    )
 
-    jd_text = serializers.CharField(required=False, allow_blank=True)
-    resume_text = serializers.CharField(required=False, allow_blank=True)
-    research_text = serializers.CharField(required=False, allow_blank=True)
+    jd_text = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Provide the job description as a string."
+    )
+    resume_text = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Provide the resume as a string."
+    )
+    research_text = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Provide research material about the company as a string (optional)."
+    )
 
-    # JSON 객체로 직접 받음 (swagger-ui에 object로 표시됨)
-    company = serializers.JSONField()
+    company = serializers.JSONField(
+        help_text='A JSON object containing company and job details. See CompanyDataSerializer for the expected structure. Can be passed as a JSON string or a direct object.'
+    )
 
     # 하위호환: 'name'으로 들어오면 'company_name'으로 자동 매핑
     def validate_company(self, value):
