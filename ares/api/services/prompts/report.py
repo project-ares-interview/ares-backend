@@ -63,16 +63,17 @@ prompt_detailed_section = (
 You are a rigorous interview auditor. Return ONLY valid JSON.
 
 [Goal]
-For each Q/A below, produce a detailed dossier including:
-- question_intent (role/company context)
-- model_answer (400~800자, 프레임워크 표기)
-- user_answer_structure (framework + present/missing)
-- scoring (scores_main/ext, rationale)
-- coaching (strengths, improvements, next_steps)
-- additional_followups (3개)
-- fact_checks (claim-by-claim)
-- ncs_alignment (titles mapping)
-- risk_notes (hiring risk signals)
+For each Q/A below, produce a detailed dossier.
+
+[Rules]
+1.  **Evidence is Key**: Your analysis MUST be based on the `user_answer`.
+2.  **Verbatim Quotes**: `evidence_quote` MUST be a direct, verbatim quote from the `user_answer` that justifies your `scoring_reason`.
+3.  **Handle No Answer**: If `user_answer` is null, empty, or irrelevant, you MUST:
+    - Set all scores in `scores_main` and `scores_ext` to 0.
+    - Set `scoring_reason` to "평가 불가 (답변 없음)" or a similar message.
+    - Set `evidence_quote` to null.
+    - Do NOT invent an answer or analysis.
+4.  **Strict Schema**: Adhere strictly to the output JSON schema.
 
 [Context]
 - company: {company_name}
@@ -102,7 +103,8 @@ For each Q/A below, produce a detailed dossier including:
         "applied_framework": "STAR",
         "scores_main": {"clarity": 0, "depth": 0, "evidence": 0, "relevance": 0},
         "scores_ext": {"leadership": 0, "communication": 0, "metrics": 0},
-        "scoring_reason": "..."
+        "scoring_reason": "...",
+        "evidence_quote": "A direct quote from the user's answer..."
       },
       "coaching": {
         "strengths": ["..."],
@@ -129,18 +131,12 @@ prompt_detailed_overview = (
 You are a head interviewer producing a FINAL exhaustive interview report. Return ONLY valid JSON.
 
 [Goal]
-Merge per-question dossiers, the interview plan, resume feedback, and transcript to produce:
-- overall_summary (2~4 paragraphs)
-- interview_flow_rationale: 단계/순서의 의도 및 검증 포인트
-- strengths_matrix: 테마 클러스터 + evidence(question_ids)
-- weaknesses_matrix: 테마/심각도 + evidence
-- score_aggregation: 평균/분산, calibration notes
-- missed_opportunities: 기대되던 강답변이 누락된 영역
-- potential_followups_global: 5~10개
-- resume_feedback: (요약 or 그대로)
-- hiring_recommendation: "strong_hire|hire|no_hire" (+ 이유)
-- next_actions: 구체적 후속조치
-- question_by_question_feedback: 문항 카드(의도/모범답변/추가 follow-up 포함)
+Merge per-question dossiers, the interview plan, resume feedback, and transcript to produce a comprehensive final report.
+
+[Rules]
+1.  **Evidence-Based Summary**: Your `overall_summary` and matrices MUST be based on the provided `per_question_dossiers`.
+2.  **Acknowledge Missing Data**: If a dossier indicates no answer was provided (e.g., scores are 0, `evidence_quote` is null), explicitly mention this as a 'missed opportunity' or 'unanswered question' in your summary.
+3.  **Trust the Dossiers**: Do not invent new analysis. Synthesize the information given in the dossiers.
 
 [Context]
 - company: {company_name}
@@ -186,7 +182,8 @@ Merge per-question dossiers, the interview plan, resume feedback, and transcript
         "applied_framework": "STAR",
         "scores_main": {},
         "scores_ext": {},
-        "feedback": "..."
+        "feedback": "...",
+        "evidence_quote": "A direct quote from the user's answer..."
       },
       "model_answer": "...",
       "additional_followups": ["..."]
