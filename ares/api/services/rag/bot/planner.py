@@ -70,9 +70,15 @@ class InterviewPlanner:
             v2_phases = []
             if isinstance(normalized_data, dict):
                 v2_phases = normalized_data.get("phases", [])
+                # V2 스키마에 icebreakers가 최상위에 있을 수 있으므로, 이를 final_plan으로 전달
+                if "icebreakers" in normalized_data:
+                    final_plan = {"icebreakers": normalized_data["icebreakers"]}
+                else:
+                    final_plan = {}
             elif isinstance(normalized_data, list):
                 # LLM이 최상위 리스트를 바로 반환하는 경우도 처리
                 v2_phases = normalized_data
+                final_plan = {}
 
             if not isinstance(v2_phases, list):
                 v2_phases = []
@@ -86,35 +92,8 @@ class InterviewPlanner:
                     new_stage['stage'] = new_stage.pop('phase')
                 transformed_stages.append(new_stage)
 
-            final_plan = {"interview_plan": transformed_stages}
-
-            # ----- 아이스브레이킹 질문 추가 (V2 계획에 icebreaker가 없을 경우 대비) -----
-            try:
-                # V2 계획에 이미 아이스브레이커가 있는지 확인
-                has_icebreaker_in_plan = False
-                for stage in final_plan.get("interview_plan", []):
-                    if stage.get("stage") == "intro":
-                        for item in stage.get("items", []):
-                            if item.get("question_type") == "icebreaking":
-                                has_icebreaker_in_plan = True
-                                break
-                    if has_icebreaker_in_plan: break
-                
-                if not has_icebreaker_in_plan:
-                    icebreaker_text = make_icebreak_question_llm_or_template(llm_call=self.bot._chat)
-                    icebreaker_question = {
-                        "id": "icebreaker-1",
-                        "type": "icebreaking",
-                        "question": icebreaker_text,
-                        "followups": []
-                    }
-                    # 별도 키에 저장 (기존 로직 호환)
-                    final_plan["icebreakers"] = [icebreaker_question]
-
-            except Exception as ice_e:
-                logger.warning(f"Could not generate icebreaker question: {ice_e}")
-                final_plan["icebreakers"] = []
-
+            final_plan["interview_plan"] = transformed_stages
+            
             print("✅ Structured interview plan designed successfully.")
             return final_plan
 

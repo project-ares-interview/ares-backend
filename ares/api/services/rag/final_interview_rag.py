@@ -13,9 +13,14 @@ RAG Interview Bot (Facade)
 """
 
 import json
+import random
 from typing import Any, Dict, List, Optional
 
-from ares.api.services.prompts import prompt_rag_answer_analysis
+from ares.api.services.prompts import (
+    prompt_rag_answer_analysis,
+    make_icebreak_question_llm_or_template,
+    ICEBREAK_TEMPLATES_KO,
+)
 from .bot.base import RAGBotBase
 from .bot.planner import InterviewPlanner
 from .bot.analyzer import AnswerAnalyzer
@@ -79,50 +84,77 @@ class RAGInterviewBot:
         }
 
     def _get_opening_statement(self) -> str:
-        """면접관 모드에 따라 첫 인사말을 반환합니다."""
-        base_greeting = f"안녕하세요, {self.base.company_name} {self.base.job_title} 직무 면접에 오신 것을 환영합니다."
+        """면접관 모드와 템플릿 조합에 따라 동적인 첫 인사말을 반환합니다."""
         
-        # 모드별 추가 설명
-        mode_specific_line = ""
-        if self.base.interviewer_mode == "team_lead":
-            mode_specific_line = "저는 해당 직무의 팀장입니다."
-        elif self.base.interviewer_mode == "executive":
-            mode_specific_line = "저는 임원 면접을 담당하고 있습니다."
+        # --- 1. 기본 인사 템플릿 ---
+        greeting_templates = [
+            f"안녕하세요, {self.base.company_name} {self.base.job_title} 직무 면접에 오신 것을 환영합니다.",
+            f"반갑습니다. {self.base.company_name} {self.base.job_title} 직무 면접에 참여해주셔서 감사합니다.",
+            f"{self.base.company_name} {self.base.job_title} 직무 면접을 시작하겠습니다. 귀한 시간 내주셔서 감사합니다.",
+        ]
+        
+        # --- 2. 면접관 소개 템플릿 (모드별) ---
+        mode_templates = {
+            "team_lead": [
+                "저는 해당 직무의 팀장입니다.",
+                "오늘 실무 역량에 대해 함께 이야기를 나눌 팀장입니다.",
+                "저는 지원하신 팀의 리더로서, 오늘 면접을 진행하게 되었습니다.",
+            ],
+            "executive": [
+                "저는 임원 면접을 담당하고 있습니다.",
+                "오늘 최종 면접을 진행할 임원입니다.",
+                "우리 조직과의 적합성을 확인하기 위해 오늘 면접에 참여한 임원입니다.",
+            ],
+            "default": [
+                "오늘 면접을 진행할 면접관입니다.",
+            ]
+        }
+        
+        # --- 3. 환영 및 분위기 조성 템플릿 ---
+        welcome_templates = [
+            "오늘 면접은 편안한 분위기에서 진행될 예정이니, 긴장 푸시고 본인의 경험을 솔직하게 말씀해주시면 됩니다.",
+            "이 자리는 평가의 시간이라기보다, 서로에 대해 알아가는 과정이라 생각해주시면 좋겠습니다. 편안하게 임해주세요.",
+            "지원자님께서 가진 역량과 경험을 충분히 들을 수 있도록 경청하겠습니다. 솔직하고 편안하게 답변해주시면 감사하겠습니다.",
+            "답변이 조금 길어져도 괜찮으니, 본인의 생각을 충분히 말씀해주시기 바랍니다.",
+        ]
 
-        # 공통 환영 문구
-        warm_welcome = "오늘 면접은 편안한 분위기에서 진행될 예정이니, 긴장 푸시고 본인의 경험을 솔직하게 말씀해주시면 됩니다."
+        # --- 4. 템플릿 무작위 조합 ---
+        base_greeting = random.choice(greeting_templates)
+        
+        introduction_pool = mode_templates.get(self.base.interviewer_mode, mode_templates["default"])
+        mode_specific_line = random.choice(introduction_pool)
+        
+        warm_welcome = random.choice(welcome_templates)
         
         # 최종 인사말 조합
-        if mode_specific_line:
-            return f"{base_greeting} {mode_specific_line} {warm_welcome}"
-        else:
-            return f"{base_greeting} {warm_welcome}"
+        return f"{base_greeting} {mode_specific_line} {warm_welcome}"
 
     def get_first_question(self) -> Dict[str, Any]:
         """
-        표준 스키마(self.plan)에서 첫 질문(인사말 + 아이스브레이킹)을 찾아 반환.
-        실패 시 빈 dict.
+        인사말과 함께 동적으로 생성된 아이스브레이킹 질문을 반환합니다.
+        실패 시 안전한 폴백 메커니즘을 사용합니다.
         """
         opening_statement = self._get_opening_statement()
-        
-        # 1. 아이스브레이킹 질문이 있는지 확인
-        if self.plan and self.plan.get("icebreakers"):
-            first_icebreaker = self.plan["icebreakers"][0]
-            # 아이스브레이커의 구조에 따라 id와 text를 추출 (구조를 가정)
-            qid = first_icebreaker.get("id", "icebreaker-1")
-            qtext = first_icebreaker.get("text") or first_icebreaker.get("question")
-            if qtext:
-                # 인사말과 아이스브레이킹 질문을 결합
-                full_question = f"{opening_statement} {qtext}"
-                return {"id": qid, "question": full_question}
+        icebreaker_text = ""
 
-        # 2. 아이스브레이킹이 없으면, 인사말 + 첫 메인 질문을 반환
+        try:
+            # LLM 호출을 self.base._chat_json으로 전달하여 동적 질문 생성
+            icebreaker_text = make_icebreak_question_llm_or_template(self.base._chat_json)
+        except Exception:
+            # LLM 호출 실패 시, 안전하게 하드코딩된 템플릿에서 무작위 선택
+            icebreaker_text = random.choice(ICEBREAK_TEMPLATES_KO)
+
+        if icebreaker_text:
+            full_question = f"{opening_statement} {icebreaker_text}"
+            return {"id": "icebreaker-dynamic-1", "question": full_question}
+
+        # 아이스브레이커 생성에 완전히 실패한 경우, 첫 번째 메인 질문으로 폴백
         qtext, qid = extract_first_main_question(self.plan or {})
         if not qtext:
-            return {}
+            return {}  # 계획이 비어있는 극단적인 경우
         
         full_question = f"{opening_statement} {qtext}"
-        return {"id": qid, "question": full_question}
+        return {"id": qid or "main-1-1", "question": full_question}
 
     # -----------------------------
     # Analyze (분석/평가/꼬리질문)
