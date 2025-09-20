@@ -93,9 +93,10 @@ def calculate_scores_for_single_file(df):
 # 서비스 메인 함수
 # ==============================================================================
 
-def analyze_voice_from_buffer(audio_buffer: np.ndarray, sr: int, transcript: str, gender: str = 'unknown') -> dict:
+def analyze_voice_from_buffer(audio_buffer: np.ndarray, sr: int, transcript: str, gender: str = 'unknown', total_speaking_time: float = 0.0) -> dict:
     """
     오디오 버퍼와 텍스트를 기반으로 음성 점수를 계산합니다.
+    total_speaking_time: 실제 발화 시간 (초)
     """
     try:
         # 1. 음성 활동 감지 (VAD) - 오디오 버퍼의 RMS 에너지와 텍스트 길이 확인
@@ -123,8 +124,14 @@ def analyze_voice_from_buffer(audio_buffer: np.ndarray, sr: int, transcript: str
             return None
 
         word_count = len(transcript.split())
-        duration_sec = acoustic_features.get("duration", 0)
-        wpm = (word_count / duration_sec) * 60 if duration_sec > 0 else 0
+        
+        # WPM 계산 시, 전달받은 total_speaking_time 사용
+        if total_speaking_time > 0:
+            wpm = (word_count / total_speaking_time) * 60
+        else:
+            # Fallback: total_speaking_time이 없는 경우 기존 방식 사용
+            duration_sec = acoustic_features.get("duration", 0)
+            wpm = (word_count / duration_sec) * 60 if duration_sec > 0 else 0
 
         feature_data = {
             **acoustic_features,
