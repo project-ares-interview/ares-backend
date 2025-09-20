@@ -30,7 +30,7 @@ session_lock = threading.Lock()
 # ==============================================================================
 # Analysis Worker Thread (수정됨)
 # ==============================================================================
-def analysis_worker(sid, audio_buffer, full_transcript, user_gender):
+def analysis_worker(sid, audio_buffer, full_transcript, user_gender, total_speaking_time):
     """백그라운드에서 최종 음성/영상 분석을 실행하고 결과를 그룹으로 전송"""
     group_name = f"session_{sid}"
     channel_layer = get_channel_layer()
@@ -44,7 +44,8 @@ def analysis_worker(sid, audio_buffer, full_transcript, user_gender):
             
             audio_data = np.frombuffer(audio_buffer, dtype=np.int16).astype(np.float32) / 32768.0
             sample_rate = 16000
-            voice_scores = analyze_voice_from_buffer(audio_data, sample_rate, full_transcript, gender=user_gender)
+            # analyze_voice_from_buffer에 total_speaking_time 전달
+            voice_scores = analyze_voice_from_buffer(audio_data, sample_rate, full_transcript, gender=user_gender, total_speaking_time=total_speaking_time)
             
             message_data = {"event": "voice_scores_update", "data": voice_scores} if voice_scores else {"event": "error", "data": {"message": "음성 점수 분석에 실패했습니다."}}
             async_to_sync(channel_layer.group_send)(group_name, {"type": "analysis.event", "data": message_data})
@@ -74,7 +75,12 @@ class InterviewResultsConsumer(AsyncJsonWebsocketConsumer):
         
         with session_lock:
             if self.sid not in client_sessions:
-                client_sessions[self.sid] = {"metrics": InterviewMetrics()}
+                # 실제 발화 시간 측정을 위한 변수 추가
+                client_sessions[self.sid] = {
+                    "metrics": InterviewMetrics(),
+                    "last_start_time": None,
+                    "total_speaking_time": 0.0
+                }
         
         await self.channel_layer.group_add(self.group_name, self.channel_name)
         await self.accept()
@@ -89,42 +95,54 @@ class InterviewResultsConsumer(AsyncJsonWebsocketConsumer):
         event = content.get("event")
         data = content.get("data", {})
 
-        if event == 'toggle_analysis':
-            with session_lock:
-                session = client_sessions.get(self.sid)
-                if session:
-                    is_analyzing = data.get("analyze", False)
-                    session["metrics"].analyzing = is_analyzing
-                    if is_analyzing:
-                        session["metrics"].analysis_start_time = time.time()
-            await self.send_json({"event": "analysis_status", "data": {"analyzing": is_analyzing}})
+        with session_lock:
+            session = client_sessions.get(self.sid)
+            if not session:
+                return
 
-        elif event == 'finish_analysis_signal':
-            await self.send_json({"event": "analysis_pending", "data": {"message": "분석을 시작합니다..."}})
-            
-            with session_lock:
-                session = client_sessions.get(self.sid)
-                if not session: return
+            if event == 'toggle_analysis':
+                is_analyzing = data.get("analyze", False)
+                session["metrics"].analyzing = is_analyzing
+                if is_analyzing:
+                    session["metrics"].analysis_start_time = time.time()
+                asyncio.create_task(self.send_json({"event": "analysis_status", "data": {"analyzing": is_analyzing}}))
 
-                # AudioConsumer가 최종 오디오를 처리할 수 있도록 상태를 먼저 변경
+            elif event == 'recording_started':
+                print(f"[{self.sid}] 녹음 시작 이벤트 수신")
+                session['last_start_time'] = time.time()
+
+            elif event == 'recording_stopped':
+                print(f"[{self.sid}] 녹음 중지 이벤트 수신")
+                if session.get('last_start_time'):
+                    elapsed = time.time() - session['last_start_time']
+                    session['total_speaking_time'] += elapsed
+                    session['last_start_time'] = None
+                    print(f"[{self.sid}] 현재까지 누적 발화 시간: {session['total_speaking_time']:.2f}초")
+
+            elif event == 'finish_analysis_signal':
+                asyncio.create_task(self.send_json({"event": "analysis_pending", "data": {"message": "분석을 시작합니다..."}}))
+                
                 session["metrics"].analyzing = False
                 session["metrics"].analysis_end_time = time.time()
 
-            # AudioConsumer가 최종 오디오 Blob을 처리하고 버퍼에 저장할 시간을 줌
-            await asyncio.sleep(1.5) # 네트워크 지연 등을 고려하여 대기 시간 확보
+                # 백그라운드 분석 시작
+                asyncio.create_task(self.start_analysis_after_delay(session))
 
-            with session_lock:
-                session = client_sessions.get(self.sid) # 최신 세션 정보 다시 로드
-                final_audio_buffer = session.get("final_audio_buffer", bytearray())
-                full_transcript = " ".join(session.get("full_transcript", []))
+    async def start_analysis_after_delay(self, session):
+        await asyncio.sleep(1.5)
 
-                        # Get user gender from scope
+        with session_lock:
+            final_audio_buffer = session.get("final_audio_buffer", bytearray())
+            full_transcript = " ".join(session.get("full_transcript", []))
+            total_speaking_time = session.get("total_speaking_time", 0.0)
+
             user = self.scope['user']
             user_gender = 'unknown'
             if user.is_authenticated and hasattr(user, 'gender') and user.gender:
-                user_gender = user.gender.upper() # Ensure it's 'MALE' or 'FEMALE'
-            
-            threading.Thread(target=analysis_worker, args=(self.sid, final_audio_buffer, full_transcript, user_gender), daemon=True).start()
+                user_gender = user.gender.upper()
+
+        # analysis_worker를 비동기적으로 실행
+        await asyncio.to_thread(analysis_worker, self.sid, final_audio_buffer, full_transcript, user_gender, total_speaking_time)
 
     async def analysis_event(self, event):
         """다른 consumer나 worker로부터 받은 분석 결과를 클라이언트에 전송"""
