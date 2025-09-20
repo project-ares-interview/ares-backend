@@ -184,8 +184,19 @@ class RAGInterviewBot:
     # -----------------------------
     # Report (최종 리포트)
     # -----------------------------
-    def build_final_report(self, transcript: List[Dict[str, Any]], structured_scores: List[Dict[str, Any]]) -> Dict[str, Any]:
-        return self.reporter.build_report(transcript=transcript, structured_scores=structured_scores)
+    def build_final_report(
+        self, 
+        transcript: List[Dict[str, Any]], 
+        structured_scores: List[Dict[str, Any]],
+        interview_plan: Optional[Dict[str, Any]] = None,
+        resume_feedback: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        return self.reporter.build_report(
+            transcript=transcript, 
+            structured_scores=structured_scores,
+            interview_plan=interview_plan,
+            resume_feedback=resume_feedback
+        )
 
     # -----------------------------
     # (선택) CLI 시연용 워크플로우

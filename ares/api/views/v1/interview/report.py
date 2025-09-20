@@ -5,7 +5,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from drf_spectacular.utils import extend_schema
 
-from ares.api.models import InterviewSession
+from ares.api.models import InterviewSession, InterviewTurn
 from ares.api.serializers.v1.interview import InterviewReportOut
 from ares.api.services.rag.final_interview_rag import RAGInterviewBot
 from ares.api.utils.common_utils import get_logger
@@ -53,32 +53,26 @@ Retrieves the detailed report for a finished interview session.
         transcript = []
         structured_scores = []
         
-        # 더 안정적인 transcript 및 structured_scores 생성 로직
-        current_turn = {}
         for t in turns:
-            if t.role == "INTERVIEWER":
-                # 이전 턴이 완성되지 않았다면 transcript에 추가
-                if current_turn:
-                    transcript.append(current_turn)
-                current_turn = {"question": t.question, "answer": None, "analysis": None}
-            elif t.role == "CANDIDATE":
-                if not current_turn: # CANDIDATE 턴이 먼저 시작되는 예외 케이스 처리
-                    current_turn = {"question": t.question, "answer": t.answer, "analysis": t.scores}
-                else:
-                    current_turn["answer"] = t.answer
-                    current_turn["analysis"] = t.scores
-                
-                if t.scores: # 분석 점수가 있는 경우 structured_scores에 추가
-                    structured_scores.append(t.scores)
-                
-                transcript.append(current_turn)
-                current_turn = {} # 턴 완성 후 초기화
+            role_str = "interviewer" if t.role == InterviewTurn.Role.INTERVIEWER else "candidate"
+            text = t.question if t.role == InterviewTurn.Role.INTERVIEWER else t.answer
+            
+            transcript.append({
+                "role": role_str,
+                "text": text,
+                "id": t.turn_label,
+            })
+            
+            if t.role == InterviewTurn.Role.CANDIDATE and t.scores:
+                structured_scores.append(t.scores)
 
-        # 마지막 턴이 INTERVIEWER로 끝나서 추가되지 않은 경우 처리
-        if current_turn and "question" in current_turn:
-            transcript.append(current_turn)
-
-        final_report = rag_bot.build_final_report(transcript, structured_scores)
+        interview_plan = rag_info.get("interview_plans", {}).get("raw_v2_plan", {})
+        final_report = rag_bot.build_final_report(
+            transcript=transcript,
+            structured_scores=structured_scores,
+            interview_plan=interview_plan,
+            resume_feedback={}  # 현재 이력서 분석 기능이 없으므로 빈 dict 전달
+        )
 
         session.meta = {**(session.meta or {}), "final_report": final_report}
         session.save(update_fields=["meta"])

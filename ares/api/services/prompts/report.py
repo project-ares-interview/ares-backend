@@ -45,7 +45,8 @@ prompt_rag_final_report = (
       "question_intent": "...",
       "answer": "지원자 답변 1",
       "keyword_analysis": { "job_related_keywords": ["..."], "comment": "..." },
-      "evaluation": { "applied_framework": "STAR|CASE|SYSTEMDESIGN|COMPETENCY(+C/L/M 선택)", "feedback": "..." }
+      "evaluation": { "applied_framework": "STAR|CASE|SYSTEMDESIGN|COMPETENCY(+C/L/M 선택)", "feedback": "..." },
+      "model_answer": "모범 답변 예시..."
     }
   ]
 }

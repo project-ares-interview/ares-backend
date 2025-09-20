@@ -128,8 +128,6 @@ Fetches the next question in the interview flow.
         session.save(update_fields=["meta"])
 
         if fsm.get("done"):
-            session.status = InterviewSession.Status.FINISHED
-            session.save(update_fields=["status"])
             return Response(InterviewNextOut({"session_id": str(session.id), "question": None, "done": True}).data)
 
         turn = InterviewTurn.objects.create(
