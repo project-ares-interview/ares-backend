@@ -131,12 +131,12 @@ prompt_detailed_overview = (
 You are a head interviewer producing a FINAL exhaustive interview report. Return ONLY valid JSON.
 
 [Goal]
-Merge per-question dossiers, the interview plan, resume feedback, and transcript to produce a comprehensive final report.
+Merge all provided data to produce a comprehensive final report with both microscopic and macroscopic insights.
 
 [Rules]
-1.  **Evidence-Based Summary**: Your `overall_summary` and matrices MUST be based on the provided `per_question_dossiers`.
-2.  **Acknowledge Missing Data**: If a dossier indicates no answer was provided (e.g., scores are 0, `evidence_quote` is null), explicitly mention this as a 'missed opportunity' or 'unanswered question' in your summary.
-3.  **Trust the Dossiers**: Do not invent new analysis. Synthesize the information given in the dossiers.
+1.  **Microscopic View (Per-Question Analysis)**: For the `question_by_question_feedback` section, you MUST use the data from `per_question_dossiers` as the single source of truth. Do not re-evaluate or invent new feedback for individual questions. Your task is to faithfully summarize the provided evaluations.
+2.  **Macroscopic View (Overall Assessment)**: For `overall_summary`, `strengths_matrix`, `hiring_recommendation`, etc., you MUST synthesize insights from ALL provided inputs: the full `transcript_digest`, the individual evaluations in `per_question_dossiers`, and the original `full_contexts_json` (resume/JD). This is your opportunity to form a holistic judgment, assessing consistency between the candidate's resume and their answers.
+3.  **Evidence-Based Summary**: Your summaries and matrices MUST be based on the provided data. If a dossier indicates no answer, mention this as a 'missed opportunity'.
 
 [Context]
 - company: {company_name}
@@ -148,8 +148,9 @@ Merge per-question dossiers, the interview plan, resume feedback, and transcript
 [Inputs]
 - interview_plan: {interview_plan_json}
 - resume_feedback_analysis: {resume_feedback_json}
-- transcript_digest: {transcript_digest}
-- per_question_dossiers: {per_question_dossiers}
+- full_contexts_json: {full_contexts_json}         # For Macroscopic View (Resume/JD 원문)
+- transcript_digest: {transcript_digest}         # For Macroscopic View (전체 대화록)
+- per_question_dossiers: {per_question_dossiers} # For Microscopic View (턴별 분석 결과)
 
 [Output JSON Schema]
 {

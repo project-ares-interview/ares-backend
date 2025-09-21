@@ -11,6 +11,7 @@ from drf_spectacular.utils import extend_schema
 from ares.api.models import InterviewSession, InterviewTurn
 from ares.api.serializers.v1.interview import InterviewFinishIn, InterviewFinishOut
 from ares.api.services.rag.final_interview_rag import RAGInterviewBot
+from ares.api.services import resume_service
 from ares.api.utils.common_utils import get_logger
 
 log = get_logger(__name__)
@@ -47,16 +48,26 @@ Marks an interview session as finished and triggers the generation of the final 
         session_id = s.validated_data["session_id"]
 
         try:
-            session = InterviewSession.objects.get(id=session_id, status=InterviewSession.Status.ACTIVE)
+            session = InterviewSession.objects.select_related('user__profile').get(id=session_id, status=InterviewSession.Status.ACTIVE)
         except InterviewSession.DoesNotExist:
             return Response({"detail": "유효하지 않은 세션입니다."}, status=status.HTTP_404_NOT_FOUND)
 
         rag_info = session.rag_context or {}
+        
+        # --- 컨텍스트 로드 (Profile 우선) ---
+        jd_context = ""
+        resume_context = ""
+        research_context = ""
+        if hasattr(session.user, 'profile'):
+            jd_context = getattr(session.user.profile, 'jd_context', '')
+            resume_context = getattr(session.user.profile, 'resume_context', '')
+            research_context = getattr(session.user.profile, 'research_context', '')
+        # --- 컨텍스트 로드 끝 ---
+
         rag_bot = RAGInterviewBot(
             company_name=rag_info.get("company_name", ""), job_title=rag_info.get("job_title", ""),
-            container_name=rag_info.get("container_name", ""), index_name=rag_info.get("index_name", ""),
-            interviewer_mode=session.interviewer_mode, resume_context=session.resume_context,
-            ncs_context=_ensure_ncs_dict(session.context), jd_context=session.jd_context,
+            interviewer_mode=session.interviewer_mode, resume_context=resume_context,
+            ncs_context=_ensure_ncs_dict(session.context), jd_context=jd_context,
         )
 
         turns = session.turns.order_by("turn_index").all()
@@ -76,12 +87,39 @@ Marks an interview session as finished and triggers the generation of the final 
             if t.role == InterviewTurn.Role.CANDIDATE and t.scores:
                 structured_scores.append(t.scores)
 
+        # --- 이력서 분석 수행 ---
+        resume_feedback = {}
+        try:
+            company_meta = {
+                "company_name": rag_info.get("company_name", ""),
+                "job_title": rag_info.get("job_title", ""),
+            }
+            full_resume_analysis = resume_service.analyze_all(
+                jd_text=jd_context,
+                resume_text=resume_context,
+                research_text=research_context,
+                company_meta=company_meta
+            )
+            resume_feedback = full_resume_analysis.get("resume_feedback", {})
+        except Exception as e:
+            log.error(f"[{session.id}] Failed to perform resume analysis for final report: {e}")
+            resume_feedback = {"error": f"Resume analysis failed: {e}"}
+        # --- 이력서 분석 끝 ---
+
         interview_plan = rag_info.get("interview_plans", {}).get("raw_v2_plan", {})
+        
+        full_contexts = {
+            "jd_context": jd_context,
+            "resume_context": resume_context,
+            "research_context": research_context,
+        }
+
         final_report = rag_bot.build_final_report(
             transcript=transcript,
             structured_scores=structured_scores,
             interview_plan=interview_plan,
-            resume_feedback={}  # 현재 이력서 분석 기능이 없으므로 빈 dict 전달
+            resume_feedback=resume_feedback,
+            full_contexts=full_contexts
         )
 
         session.status = InterviewSession.Status.FINISHED
