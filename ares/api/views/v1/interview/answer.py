@@ -52,16 +52,17 @@ def _safe_plan_list(plan: dict | None) -> List[dict]:
     return stages if isinstance(stages, list) else []
 
 
-def _safe_analyze_answer(rag_bot, question: str, answer: str, stage: str):
+def _safe_analyze_answer(rag_bot, question: str, answer: str, stage: str, question_item: dict | None = None):
     if hasattr(rag_bot, "analyze_answer_with_rag"):
         try:
+            # 최신 시그니처 먼저 시도
             return rag_bot.analyze_answer_with_rag(
-                question=question, answer=answer, stage=stage
+                question=question, answer=answer, stage=stage, question_item=question_item
             )
         except TypeError:
             # 구버전 시그니처 호환
             return rag_bot.analyze_answer_with_rag(
-                question=question, answer=answer
+                question=question, answer=answer, stage=stage
             )
     raise AttributeError("RAGInterviewBot has no compatible analysis method.")
 
@@ -73,6 +74,7 @@ def _safe_generate_followups(
     analysis: dict,
     stage: str,
     objective: str,
+    question_item: dict | None = None,
     limit: int = 2,
 ) -> List[str]:
     """
@@ -81,6 +83,18 @@ def _safe_generate_followups(
     if not hasattr(rag_bot, "generate_follow_up_question"):
         return []
     try:
+        # 최신 시그니처 먼저 시도
+        fu = rag_bot.generate_follow_up_question(
+            original_question=original_question,
+            answer=answer,
+            analysis=analysis,
+            stage=stage,
+            objective=objective,
+            question_item=question_item,
+            limit=limit,
+        )
+    except TypeError:
+        # 구버전 시그니처 호환
         fu = rag_bot.generate_follow_up_question(
             original_question=original_question,
             answer=answer,
@@ -88,14 +102,6 @@ def _safe_generate_followups(
             stage=stage,
             objective=objective,
             limit=limit,
-        )
-    except TypeError:
-        fu = rag_bot.generate_follow_up_question(
-            original_question=original_question,
-            answer=answer,
-            analysis=analysis,
-            stage=stage,
-            objective=objective,
         )
     if not isinstance(fu, list):
         return []
@@ -178,7 +184,8 @@ Submits a candidate's answer to a given question during an active interview sess
         # -------------------------
         # 질문 유형에 따른 분기 처리
         # -------------------------
-        if current_question_type == "icebreaking":
+        # 'turn_label'에 "icebreaker"가 포함된 경우도 아이스브레이킹으로 간주 (동적 생성된 첫 질문 처리)
+        if current_question_type == "icebreaking" or (turn_label and "icebreaker" in turn_label):
             # 1) 아이스브레이킹 답변에 대한 간단 분석
             analysis_result = {
                 "feedback": "아이스브레이킹 대화가 확인되었습니다. 편안한 분위기에서 면접을 시작하는 것은 좋습니다.",
@@ -277,7 +284,7 @@ Submits a candidate's answer to a given question during an active interview sess
             plan_list[stage_idx].get("title", "N/A") if stage_idx < len(plan_list) else "N/A"
         )
         analysis_result = _safe_analyze_answer(
-            rag_bot, v.get("question", ""), v["answer"], current_stage_title
+            rag_bot, v.get("question", ""), v["answer"], current_stage_title, current_question_item
         )
 
         # 3) 하이브리드 꼬리질문 생성
@@ -302,6 +309,7 @@ Submits a candidate's answer to a given question during an active interview sess
             analysis=analysis_result,
             stage=current_stage_title,
             objective=objective,
+            question_item=current_question_item,
             limit=2,  # 실시간 생성 꼬리질문은 2개로 제한
         )
 
@@ -323,10 +331,15 @@ Submits a candidate's answer to a given question during an active interview sess
             feedback=(analysis_result or {}).get("feedback", ""),
         )
 
-        # 5) FSM에 꼬리질문 버퍼 적재
+        # 5) FSM에 꼬리질문 및 전환 구문 버퍼 적재
         if followups:
             fsm["pending_followups"] = followups[:MAX_FOLLOWUPS_PER_Q]
             fsm["followup_idx"] = 0
+        
+        if analysis_result and isinstance(analysis_result, dict):
+            transition = analysis_result.get("transition_phrase")
+            if transition and isinstance(transition, str):
+                fsm["pending_transition"] = transition
 
         session.meta = {**(session.meta or {}), "fsm": fsm}
         session.save(update_fields=["meta"])

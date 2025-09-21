@@ -200,19 +200,31 @@ prompt_rag_answer_analysis = (
 {persona_description}
 {evaluation_focus}
 아래 자료를 종합하여 지원자의 답변을 평가하세요. 점수 대신 '서술형' 의견을 제시합니다.
-- 핵심 주장 1~2개만 검증.
-- 근거 표기: "[자료 1 기반]" 또는 "[자료 2 웹 검색 기반]".
+**[중요] '평가 기준'을 최우선으로 고려하여 답변을 분석하고 피드백을 작성해야 합니다.**
+
 면접 질문: {question}
 답변: {answer}
+
+[평가 기준]
+{evaluation_criteria}
+
 [자료 1] 내부: {internal_check}
 [자료 2] 웹: {web_result}
+
+[요구사항]
+- 핵심 주장 1~2개만 검증.
+- 근거 표기: "[자료 1 기반]" 또는 "[자료 2 웹 검색 기반]".
+- '평가 기준'에 명시된 Rubric과 기대 답변(Expected Points)을 바탕으로 답변의 강점과 약점을 분석하세요.
+- 'transition_phrase'에는 방금 들은 답변을 가볍게 인정하고 다음 질문으로 자연스럽게 넘어가기 위한 1-2 문장의 연결 구문을 생성하세요. (예: '네, ~에 대한 경험 잘 들었습니다. 그럼 다음으로...')
+
 [출력]
 {{
   "claims_checked": [
     {{"claim": "...", "evidence_source": "[자료 1 기반|자료 2 웹 검색 기반]", "verdict": "지원|반박|불충분", "rationale": "..."}}
   ],
-  "analysis": "... (300~600자)",
-  "feedback": "... (3~5문장)"
+  "analysis": "... (300~600자, 평가 기준에 근거하여 작성)",
+  "feedback": "... (3~5문장, 평가 기준에 근거하여 개선점을 중심으로 작성)",
+  "transition_phrase": "... (1-2 문장의 자연스러운 연결 구문)"
 }}
 """
     + prompt_json_output_only

@@ -123,6 +123,12 @@ Fetches the next question in the interview flow.
 
         if not next_question_text:
             fsm["done"] = True
+        else:
+            # 전환 구문이 있으면 질문 앞에 추가
+            if "pending_transition" in fsm:
+                transition = fsm.pop("pending_transition")
+                if transition and isinstance(transition, str):
+                    next_question_text = f"{transition} {next_question_text}"
 
         session.meta = {**(session.meta or {}), "fsm": fsm}
         session.save(update_fields=["meta"])

@@ -27,8 +27,8 @@ prompt_followup_v2 = (
     SYSTEM_RULES
     + """
 {persona_description}
-목표: '직전 답변 분석 결과(analysis_summary)'를 바탕으로 지원자의 역량을 검증하거나 주장의 근거를 확인하는 "꼬리질문 1~2개"를 생성합니다.
-분석 결과가 없거나 부실하면 '직전 답변(latest_answer)'을 참고하여 일반적인 질문으로 폴백합니다.
+목표: '직전 답변 분석 결과(analysis_summary)'와 '평가 기준(evaluation_criteria)'을 종합하여 지원자의 역량을 검증하거나 주장의 근거를 확인하는 "꼬리질문 1~2개"를 생성합니다.
+**[중요] '평가 기준'에 명시된 Rubric과 기대 답변(Expected Points)을 최우선으로 고려하여, 답변에서 누락되었거나 부족했던 점을 파고드는 질문을 생성해야 합니다.**
 
 [입력]
 - phase: {phase}                # "intro" | "core" | "wrapup"
@@ -36,6 +36,7 @@ prompt_followup_v2 = (
 - objective: {objective}
 - latest_answer: {latest_answer}
 - analysis_summary: {analysis_summary} # 답변 분석 요약 (피드백, 강점, 약점 등)
+- evaluation_criteria: {evaluation_criteria} # Rubric 및 기대 답변 포인트
 - company_context: {company_context}
 - ncs: {ncs}
 - kpi: {kpi}
@@ -49,7 +50,7 @@ prompt_followup_v2 = (
 }
 규칙:
 - followups는 1~2개로 제한합니다.
-- analysis_summary를 최우선으로 활용하여 질문을 생성하세요.
+- evaluation_criteria와 analysis_summary를 최우선으로 활용하여 질문을 생성하세요.
 - latest_answer가 빈약하여 의미 있는 질문 생성이 어려우면 fallback_used=true로 표기하고, 안전한 일반 꼬리질문을 생성하세요.
 - 민감/사생활/차별 유발 소재는 절대 금지입니다.
 """

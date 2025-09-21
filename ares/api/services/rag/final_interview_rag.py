@@ -138,15 +138,19 @@ class RAGInterviewBot:
         icebreaker_text = ""
 
         try:
-            # LLM 호출을 self.base._chat_json으로 전달하여 동적 질문 생성
-            icebreaker_text = make_icebreak_question_llm_or_template(self.base._chat_json)
-        except Exception:
-            # LLM 호출 실패 시, 안전하게 하드코딩된 템플릿에서 무작위 선택
+            # 템플릿 기반의 가벼운 질문을 우선적으로 사용
             icebreaker_text = random.choice(ICEBREAK_TEMPLATES_KO)
+        except Exception:
+            # 템플릿 사용 실패 시 LLM 호출로 폴백
+            try:
+                icebreaker_text = make_icebreak_question_llm_or_template(self.base._chat_json)
+            except Exception:
+                # LLM 호출도 실패하면 최종 폴백
+                icebreaker_text = "오늘 면접 보러 오시는 길은 어떠셨나요?"
 
         if icebreaker_text:
             full_question = f"{opening_statement} {icebreaker_text}"
-            return {"id": "icebreaker-dynamic-1", "question": full_question}
+            return {"id": "icebreaker-template-1", "question": full_question}
 
         # 아이스브레이커 생성에 완전히 실패한 경우, 첫 번째 메인 질문으로 폴백
         qtext, qid = extract_first_main_question(self.plan or {})
@@ -159,7 +163,7 @@ class RAGInterviewBot:
     # -----------------------------
     # Analyze (분석/평가/꼬리질문)
     # -----------------------------
-    def analyze_answer_with_rag(self, question: str, answer: str, stage: str) -> dict:
+    def analyze_answer_with_rag(self, question: str, answer: str, stage: str, question_item: Optional[Dict] = None) -> dict:
         """
         Analyzes the candidate's answer using RAG.
         """
@@ -168,6 +172,19 @@ class RAGInterviewBot:
             print("[WARNING] analyze_answer: RAG system is not ready.")
             return {"error": "RAG system is not ready."}
 
+        # --- Rubric 및 평가 기준 주입 ---
+        evaluation_criteria = ""
+        if question_item:
+            rubric = question_item.get("rubric")
+            expected = question_item.get("expected_points")
+            criteria_text = "\n[평가 기준]\n"
+            if rubric:
+                criteria_text += f"- Rubric: {json.dumps(rubric, ensure_ascii=False)}\n"
+            if expected:
+                criteria_text += f"- Expected Points: {json.dumps(expected, ensure_ascii=False)}\n"
+            evaluation_criteria = criteria_text
+        # --- 끝 ---
+
         # 프롬프트 플레이스홀더에 실제 값 주입
         # TODO: internal_check, web_result는 현재 구현에서 비어있으므로, 향후 RAG 기능 확장 시 채워야 함
         formatted_prompt = prompt_rag_answer_analysis.format(
@@ -175,6 +192,7 @@ class RAGInterviewBot:
             evaluation_focus=self.base.persona.get("evaluation_focus", ""),
             question=question,
             answer=answer,
+            evaluation_criteria=evaluation_criteria, # 평가 기준 주입
             internal_check="(내부 자료 검증 정보 없음)",
             web_result="(웹 검색 결과 없음)"
         )
@@ -196,6 +214,7 @@ class RAGInterviewBot:
         analysis: Dict,
         stage: str,
         objective: str,
+        question_item: Optional[Dict] = None,
         *,
         limit: int = 3,
         **kwargs,
@@ -209,6 +228,7 @@ class RAGInterviewBot:
             analysis=analysis,
             stage=stage,
             objective=objective,
+            question_item=question_item,
             limit=limit,
             **kwargs,
         )
