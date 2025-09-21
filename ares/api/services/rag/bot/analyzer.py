@@ -220,6 +220,7 @@ class AnswerAnalyzer:
         analysis: Dict,
         stage: str,
         objective: str,
+        question_item: Optional[Dict] = None,
         *, 
         limit: int = 3,
         **kwargs,
@@ -260,6 +261,19 @@ class AnswerAnalyzer:
             # analysis 딕셔너리를 JSON 문자열로 변환하여 프롬프트에 전달
             analysis_summary = json.dumps(analysis, ensure_ascii=False, indent=2)
 
+            # --- Rubric 및 평가 기준 주입 ---
+            evaluation_criteria = ""
+            if question_item:
+                rubric = question_item.get("rubric")
+                expected = question_item.get("expected_points")
+                criteria_text = "\n[평가 기준]\n"
+                if rubric:
+                    criteria_text += f"- Rubric: {json.dumps(rubric, ensure_ascii=False)}\n"
+                if expected:
+                    criteria_text += f"- Expected Points: {json.dumps(expected, ensure_ascii=False)}\n"
+                evaluation_criteria = criteria_text
+            # --- 끝 ---
+
             prompt = (
                 prompt_followup_v2
                 .replace("{persona_description}", persona_desc)
@@ -268,6 +282,7 @@ class AnswerAnalyzer:
                 .replace("{objective}", objective or "")
                 .replace("{latest_answer}", _truncate(answer, 1500))
                 .replace("{analysis_summary}", _truncate(analysis_summary, 2000)) # 답변 분석 결과 추가
+                .replace("{evaluation_criteria}", evaluation_criteria) # 평가 기준 주입
                 .replace("{company_context}", self.bot.company_name)
                 .replace("{ncs}", _truncate(ncs_info, 400))
                 .replace("{kpi}", "[]")

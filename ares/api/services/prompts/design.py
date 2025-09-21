@@ -48,11 +48,15 @@ prompt_interview_designer_v2 = (
 요구사항:
 - phases: intro → core → wrapup 순서
 - 각 item은 question_type을 다음 중 하나로: ["icebreaking","self_intro","motivation","star","competency","case","system","hard","wrapup"]
+- **[매우 중요] 질문 생성 시 'STAR 방식으로', 'CASE 기법으로' 등 평가 프레임워크의 이름을 절대 직접 언급하지 마세요. 대신, 해당 프레임워크로 답변할 수밖에 없는 자연스러운 행동/경험 기반 질문을 하세요.**
 - icebreaking 질문은 지원자가 면접 장소에 도착하기까지의 과정이나 현재 컨디션 등, 면접 당일의 상황과 관련된 아주 가벼운 스몰 토크여야 합니다. (좋은 예: '오늘 오시는 길은 어떠셨나요?', '점심은 드셨나요?' / 나쁜 예: '가장 감명깊게 읽은 책은?')
-- difficulty_curve: ["easy","normal","hard"] (core 내 질문이 자연스레 상승)
+- difficulty_curve: ["easy","normal","hard"] (core 내 질문이 자연스럽게 상승)
 - mix_ratio: {"star":0.x,"case":0.x,"competency":0.x,"system":0.x} 합 1.0 (core 기준)
 - 각 question은 최대 1문장(≤200자), followups는 1~3개
 - KPI/NCS 맥락이 있으면 items[*].kpi 필드에 ["OEE","MTBF"] 등 포함 가능
+- **[중요] 모든 질문(items)에는 'expected_points'와 'rubric'을 반드시 포함해야 합니다.**
+- **expected_points**: 해당 질문을 통해 확인하고자 하는 핵심 역량 키워드 또는 기대 답변 포인트를 3~5개 나열합니다.
+- **rubric**: "매우우수/우수/보통/약간미흡/미흡" 5단계의 평가 기준을 구체적인 서술형으로 정의하고, 각 등급에 50/40/30/20/10점의 점수를 부여합니다.
 
 [[최신 사업 요약]]  
 {business_info}
@@ -75,26 +79,49 @@ prompt_interview_designer_v2 = (
     {
       "phase": "intro",
       "items": [
-        {"question_type":"icebreaking","question":"...", "followups":["..."]},
-        {"question_type":"self_intro","question":"...", "followups":["..."]},
-        {"question_type":"motivation","question":"...", "followups":["..."]}
+        {
+          "question_type": "icebreaking",
+          "question": "...",
+          "followups": ["..."],
+          "expected_points": ["긴장 완화", "분위기 조성"],
+          "rubric": [
+            {"label": "매우우수", "score": 50, "desc": "편안하고 자연스럽게 대답하며 긍정적인 분위기를 조성함."},
+            {"label": "보통", "score": 30, "desc": "간단하게 대답하며 무난한 수준의 상호작용을 보임."},
+            {"label": "미흡", "score": 10, "desc": "단답형으로 대답하거나 긴장한 기색이 역력함."}
+          ]
+        },
+        {"question_type":"self_intro","question":"...", "followups":["..."], "expected_points": ["..."], "rubric": [...]},
+        {"question_type":"motivation","question":"...", "followups":["..."], "expected_points": ["..."], "rubric": [...]}
       ]
     },
     {
       "phase": "core",
       "items": [
-        {"question_type":"star","question":"...","followups":["..."], "kpi":["OEE","MTBF"]},
-        {"question_type":"competency","question":"...","followups":["..."]},
-        {"question_type":"case","question":"...","followups":["..."], "kpi":["..."]},
-        {"question_type":"system","question":"...","followups":["..."]},
-        {"question_type":"hard","question":"...","followups":["..."]}
+        {
+          "question_type": "star",
+          "question": "...",
+          "followups": ["..."],
+          "kpi": ["OEE","MTBF"],
+          "expected_points": ["문제 정의(Situation/Task)", "본인의 역할/행동(Action)", "구체적인 결과(Result)", "정량적 성과", "배운 점"],
+          "rubric": [
+            {"label": "매우우수", "score": 50, "desc": "STAR 구조에 맞춰 모든 요소를 구체적이고 논리적으로 설명하며, 정량적 성과를 명확히 제시함."},
+            {"label": "우수", "score": 40, "desc": "STAR 구조에 맞춰 대부분의 요소를 설명하지만, 일부 내용의 구체성이 다소 부족함."},
+            {"label": "보통", "score": 30, "desc": "STAR 구조를 따르려 노력했으나, 일부 요소가 누락되거나 설명이 불분명함."},
+            {"label": "약간미흡", "score": 20, "desc": "자신의 행동이나 결과에 대한 설명이 부족하고, 대부분 상황 설명에 치중함."},
+            {"label": "미흡", "score": 10, "desc": "질문의 의도를 파악하지 못하고, 경험을 제대로 설명하지 못함."}
+          ]
+        },
+        {"question_type":"competency","question":"...","followups":["..."], "expected_points": ["..."], "rubric": [...]},
+        {"question_type":"case","question":"...","followups":["..."], "kpi":["..."], "expected_points": ["..."], "rubric": [...]},
+        {"question_type":"system","question":"...","followups":["..."], "expected_points": ["..."], "rubric": [...]},
+        {"question_type":"hard","question":"...","followups":["..."], "expected_points": ["..."], "rubric": [...]}
       ]
     },
     {
       "phase": "wrapup",
       "items": [
-        {"question_type":"wrapup","question":"마지막으로 질문하고 싶은 것이 있으신가요?", "followups":[]},
-        {"question_type":"wrapup","question":"마지막으로 하고 싶은 말이 있으신가요?", "followups":[]}
+        {"question_type":"wrapup","question":"마지막으로 질문하고 싶은 것이 있으신가요?", "followups":[], "expected_points": ["회사/직무에 대한 관심도", "질문의 깊이"], "rubric": [...]},
+        {"question_type":"wrapup","question":"마지막으로 하고 싶은 말이 있으신가요?", "followups":[], "expected_points": ["입사 의지", "마지막 어필"], "rubric": [...]}
       ]
     }
   ]
@@ -104,6 +131,7 @@ prompt_interview_designer_v2 = (
 - core에서 난이도 easy→normal→hard 흐름 유지
 - mix_ratio 준수(±1개 허용)
 - 직무 적합성(KPI/NCS) 커버됨
+- **모든 질문에 expected_points와 rubric이 포함되었는가**
 """
     + prompt_json_output_only
 )
