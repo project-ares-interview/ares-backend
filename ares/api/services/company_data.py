@@ -16,7 +16,7 @@ def get_company_dataframe() -> pd.DataFrame:
         try:
             # Django 프로젝트의 루트 경로를 기준으로 파일을 찾도록 경로를 설정할 수 있습니다.
             # 여기서는 우선 기존과 동일하게 상대 경로를 사용합니다.
-            return pd.read_csv('companies_updated.csv')
+            return pd.read_csv('data/companies_updated.csv')
         except Exception as e2:
             print(f"🚨 모든 데이터 로드 실패: {e2}.")
             return pd.DataFrame()
@@ -43,3 +43,17 @@ def get_company_description(company_name: str) -> str:
         
     company_info = df[df['company_name'] == company_name].iloc[0]
     return company_info.get('detailed_description', '인재상 정보 없음')
+
+def get_company_dart_name_map() -> dict:
+    """
+    회사 이름과 DART API에서 사용하는 공식 명칭을 매핑하는 딕셔너리를 반환합니다.
+    """
+    df = get_company_dataframe()
+    if df.empty or 'company_name' not in df.columns:
+        return {}
+    
+    # 'dart_name'이 없는 경우 'company_name'을 사용
+    df['dart_name'] = df.get('dart_name', pd.Series(df['company_name'], index=df.index))
+    df['dart_name'] = df['dart_name'].fillna(df['company_name'])
+    
+    return pd.Series(df.dart_name.values, index=df.company_name).to_dict()

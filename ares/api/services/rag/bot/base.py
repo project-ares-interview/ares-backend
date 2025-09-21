@@ -3,9 +3,10 @@
 Base class for the RAG Interview Bot, handling common initialization and low-level API calls.
 """
 
+import re
 import json
 from typing import Any, Dict, Optional
-from functools import lru_cache
+from unidecode import unidecode
 
 from django.conf import settings
 from openai import AzureOpenAI
@@ -15,13 +16,20 @@ from ares.api.utils.ai_utils import safe_extract_json
 from ..new_azure_rag_llamaindex import AzureBlobRAGSystem
 from .utils import _truncate, _escape_special_chars
 
-@lru_cache(maxsize=1)
-def get_rag_system_default() -> AzureBlobRAGSystem:
-    print("\n📊 Initializing Azure RAG System Connection (Singleton)...")
-    return AzureBlobRAGSystem(
-        container_name="interview-data",
-        index_name="gia-report-index",
-    )
+def sanitize_for_index(name: str) -> str:
+    """Converts a string into a valid Azure AI Search index name."""
+    if not name:
+        return "default-index"
+    # Transliterate to ASCII (e.g., 'SK케미칼' -> 'SKkemikal')
+    ascii_name = unidecode(name)
+    # Lowercase and replace common separators with a hyphen
+    sanitized = ascii_name.lower().replace(' ', '-').replace('_', '-')
+    # Remove all other invalid characters (Azure index names are alphanumeric + dashes)
+    sanitized = re.sub(r'[^a-z0-9-]', '', sanitized)
+    # Ensure it doesn't start or end with a hyphen
+    sanitized = sanitized.strip('-')
+    # Azure index names must be between 2 and 128 chars
+    return sanitized[:120] or "default-index"
 
 class RAGBotBase:
     def __init__(
@@ -70,7 +78,17 @@ class RAGBotBase:
             api_version=self.api_version,
         )
 
-        self.rag_system = rag_system or get_rag_system_default()
+        if rag_system:
+            self.rag_system = rag_system
+        else:
+            sanitized_name = sanitize_for_index(self.company_name)
+            dynamic_index_name = f"{sanitized_name}-report-index"
+            print(f"\n📊 Initializing Azure RAG System for index: {dynamic_index_name}...")
+            self.rag_system = AzureBlobRAGSystem(
+                container_name="interview-data",
+                index_name=dynamic_index_name,
+            )
+
         self.rag_ready = self.rag_system.is_ready()
         self._bizinfo_cache: Dict[str, str] = {}
 
@@ -134,22 +152,25 @@ class RAGBotBase:
         )
         return (resp.choices[0].message.content or "").strip()
 
-    def _get_company_business_info(self) -> str:
+    def summarize_company_context(self, query_text: str) -> str:
         """회사/직무 맥락 요약 (RAG)"""
         if not self.rag_ready:
-            return ""
-        try:
-            cache_key = f"{self.company_name}::{self.job_title}"
-            if cache_key in self._bizinfo_cache:
-                return self._bizinfo_cache[cache_key]
+            return "RAG 시스템이 준비되지 않았습니다."
 
-            safe_company_name = _escape_special_chars(self.company_name)
-            safe_job_title = _escape_special_chars(self.job_title)
-            query_text = f"Summarize key business areas, recent performance, major risks for {safe_company_name}, especially related to the {safe_job_title} role."
+        # DART 연동을 위해 sync_index 호출 추가
+        if self.company_name:
+            print(f"🔄 RAG 인덱스 동기화 시도: {self.company_name}")
+            try:
+                self.rag_system.sync_index(company_name_filter=self.company_name)
+            except Exception as e:
+                print(f"⚠️ RAG 인덱스 동기화 중 오류 발생: {e}")
+                # 동기화 실패 시에도 계속 진행 (기존 데이터로 질의)
+
+        try:
             print(f"🔍 Querying index '{self.rag_system.index_name}' for company info: {query_text}")
             business_info_raw = self.rag_system.query(query_text)
             summary = _truncate(business_info_raw or "", 1200)
-            self._bizinfo_cache[cache_key] = summary
+            # 캐싱 로직은 planner에서 처리하므로 여기서는 제거
             return summary
         except Exception as e:
             print(f"⚠️ Failed to retrieve company info: {e}")

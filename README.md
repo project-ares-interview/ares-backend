@@ -82,7 +82,7 @@ AZURE_OPENAI_ENDPOINT='https://your-openai-service.openai.azure.com/'
 AZURE_OPENAI_KEY='your-openai-api-key'
 AZURE_OPENAI_API_VERSION='2024-02-15-preview' # 사용하는 API 버전에 맞게 수정
 AZURE_OPENAI_MODEL='your-deployment-name' # gpt-4o 등
-AZURE_EMBEDDING_MODEL='your-embedding-deployment-name' # text-embedding-3-small 등
+AZURE_OPENAI_EMBEDDING_MODEL='your-embedding-deployment-name' # text-embedding-3-small 등
 
 # Social Auth (Optional)
 GOOGLE_CLIENT_ID='your-google-client-id'

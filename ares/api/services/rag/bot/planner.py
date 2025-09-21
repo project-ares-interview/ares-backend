@@ -20,6 +20,7 @@ from .utils import (
     _truncate,
     normalize_llm_json,
     safe_get_any,
+    _escape_special_chars,
 )
 
 logger = logging.getLogger(__name__)
@@ -38,7 +39,11 @@ class InterviewPlanner:
 
         print(f"\n🧠 Designing custom interview plan for {self.bot.company_name} (Difficulty: {self.bot.difficulty}, Interviewer: {self.bot.interviewer_mode})...")
         try:
-            business_info = self.bot._get_company_business_info()
+            safe_company_name = _escape_special_chars(self.bot.company_name)
+            safe_job_title = _escape_special_chars(self.bot.job_title)
+            query_text = f"Summarize key business areas, recent performance, major risks for {safe_company_name}, especially related to the {safe_job_title} role."
+            business_info = self.bot.summarize_company_context(query_text)
+
             ncs_info = ""
             ncs_dict = self.bot._ensure_ncs_dict(self.bot.ncs_context)
             if isinstance(ncs_dict.get("ncs"), list):

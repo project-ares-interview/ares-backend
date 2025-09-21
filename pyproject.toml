@@ -52,6 +52,9 @@ dependencies = [
     "charset-normalizer>=3.4.3",
     "drf-spectacular>=0.28.0",
     "whitenoise>=6.10.0",
+    "xhtml2pdf>=0.2.17",
+    "beautifulsoup4>=4.13.5",
+    "lxml>=6.0.1",
 ]
 
 [tool.ruff]

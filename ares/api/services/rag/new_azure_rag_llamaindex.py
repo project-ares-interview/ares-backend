@@ -9,10 +9,12 @@ from typing import List, Dict, Tuple, Optional
 from datetime import datetime, timezone
 
 from tqdm import tqdm
+from bs4 import BeautifulSoup
 from azure.core.credentials import AzureKeyCredential
-from azure.storage.blob import BlobServiceClient, BlobClient
+from azure.storage.blob import BlobServiceClient, BlobClient, ContentSettings
 from azure.search.documents import SearchClient
 from azure.search.documents.indexes import SearchIndexClient
+from xhtml2pdf import pisa
 
 from llama_index.core import VectorStoreIndex, Settings, StorageContext, Document
 from llama_index.core.node_parser import SentenceSplitter
@@ -20,6 +22,11 @@ from llama_index.llms.azure_openai import AzureOpenAI
 from llama_index.embeddings.azure_openai import AzureOpenAIEmbedding
 from llama_index.readers.file import PyMuPDFReader
 from llama_index.vector_stores.azureaisearch import AzureAISearchVectorStore, IndexManagement
+
+from ares.api.services.dart_service import DartService
+from ares.api.services.blob_storage import BlobStorage
+from ares.api.services.company_data import get_company_dart_name_map
+
 
 
 # ============================== 메타 저장소 ==============================
@@ -127,6 +134,18 @@ class AzureBlobRAGSystem:
         self.search_client = SearchClient(endpoint=search_endpoint, index_name=self.index_name, credential=credential)
         self.search_index_client = SearchIndexClient(endpoint=search_endpoint, credential=credential)
 
+        # DART 연동 및 기업 데이터 서비스
+        try:
+            self.dart_service = DartService()
+            self.blob_storage = BlobStorage()
+            self.company_data = get_company_dart_name_map()
+            print("✅ DART 서비스 및 기업 데이터 로드 완료")
+        except Exception as e:
+            print(f"⚠️ DART 서비스 또는 기업 데이터 초기화 실패: {e}")
+            self.dart_service = None
+            self.company_data = {}
+
+
         # LlamaIndex 설정
         self._setup_llamaindex()
 
@@ -170,12 +189,23 @@ class AzureBlobRAGSystem:
             api_key=os.getenv("AZURE_OPENAI_KEY"),
             api_version=os.getenv("API_VERSION", "2024-02-15-preview"),
         )
+        
+        # --- [DEBUG] 임베딩 설정 값 출력 ---
+        embedding_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+        embedding_key = os.getenv("AZURE_OPENAI_KEY")
+        embedding_deployment = os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT", "text-embedding-3-small")
+        print("\n--- [DEBUG] Azure OpenAI Embedding Settings ---")
+        print(f"  - ENDPOINT: {embedding_endpoint}")
+        print(f"  - API KEY: {'*' * (len(embedding_key) - 4) + embedding_key[-4:] if embedding_key else 'Not Set'}")
+        print(f"  - DEPLOYMENT: {embedding_deployment}")
+        print("---------------------------------------------\n")
+        
         Settings.embed_model = AzureOpenAIEmbedding(
-            model=os.getenv("AZURE_EMBEDDING_MODEL", "text-embedding-3-small"),
-            deployment_name=os.getenv("AZURE_EMBEDDING_MODEL", "text-embedding-3-small"),
-            azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
-            api_key=os.getenv("AZURE_OPENAI_KEY"),
-            api_version="2023-05-15",
+            model=embedding_deployment,
+            deployment_name=embedding_deployment,
+            azure_endpoint=embedding_endpoint,
+            api_key=embedding_key,
+            api_version=os.getenv("API_VERSION", "2024-02-15-preview"),
         )
         Settings.node_parser = SentenceSplitter(chunk_size=1024, chunk_overlap=200)
         print("  ✅ LlamaIndex 설정 완료")
@@ -274,6 +304,12 @@ class AzureBlobRAGSystem:
                     elif blob_name.lower().endswith(".txt"):
                         text = Path(temp_path).read_text(encoding="utf-8", errors="ignore")
                         loaded_docs = [Document(text=text)]
+                    elif blob_name.lower().endswith(".xml"):
+                        # XML 파일 처리: BeautifulSoup으로 텍스트만 추출
+                        raw_content = Path(temp_path).read_bytes()
+                        soup = BeautifulSoup(raw_content, 'lxml')
+                        text = soup.get_text(separator='\n', strip=True)
+                        loaded_docs = [Document(text=text)]
                     else:
                         print("    ℹ️ 지원하지 않는 확장자. 스킵:", blob_name)
                         continue
@@ -317,9 +353,55 @@ class AzureBlobRAGSystem:
             print(f"  ❌ '{doc_id}' 삭제 실패: {e}")
 
     # -------------------------- 동기화 --------------------------
+    def _ensure_latest_report_from_dart(self, company_name: str):
+        """DART API를 통해 최신 사업보고서를 확인하고, 없으면 다운로드하여 Blob Storage에 업로드"""
+        if not self.dart_service or not self.company_data:
+            print("  ⚠️ DART 서비스가 초기화되지 않아 최신 보고서 확인을 건너뜁니다.")
+            return
+
+        print(f"🎯 DART에서 '{company_name}'의 최신 사업보고서 확인 중...")
+        
+        exact_company_name = self.company_data.get(company_name)
+        if not exact_company_name:
+            print(f"  ⚠️ 기업 데이터에서 '{company_name}'을(를) 찾을 수 없습니다.")
+            return
+
+        corp_code = self.dart_service.get_corp_code(exact_company_name)
+        if not corp_code:
+            print(f"  ⚠️ DART에서 '{exact_company_name}'의 기업 코드를 찾을 수 없습니다.")
+            return
+
+        report_info = self.dart_service.get_latest_business_report_info(corp_code)
+        if not report_info:
+            print(f"  ℹ️ '{exact_company_name}'의 최신 사업보고서 정보를 찾을 수 없습니다.")
+            return
+
+        rcept_no = report_info.get("rcept_no")
+        if not rcept_no:
+            print(f"  ⚠️ 보고서 정보에 접수번호가 없습니다: {report_info}")
+            return
+
+        blob_name_xml = f"[{company_name}]사업보고서_{rcept_no}.xml"
+        if self.blob_storage.blob_exists(blob_name_xml):
+            print(f"  ✅ 최신 사업보고서 '{blob_name_xml}'이(가) 이미 Blob Storage에 존재합니다.")
+            return
+
+        print(f"  📥 '{blob_name_xml}' 다운로드 및 업로드 시작...")
+        xml_content_bytes = self.dart_service.download_document(rcept_no)
+        if xml_content_bytes:
+            try:
+                self.blob_storage.upload_blob(blob_name_xml, xml_content_bytes, "application/xml")
+                print(f"  ✅ '{blob_name_xml}'을(를) Blob Storage에 성공적으로 업로드했습니다.")
+            except Exception as e:
+                print(f"  ❌ Blob Storage 업로드 실패: {e}")
+        else:
+            print(f"  ❌ DART에서 문서 다운로드 실패 (접수번호: {rcept_no})")
+
+
     def sync_index(self, company_name_filter: Optional[str] = None):
         """
         Blob ↔ 인덱스 증분 동기화.
+        - DART API를 통해 최신 보고서가 없으면 다운로드 (필터링 시)
         - 추가/변경 판단 기준: ETag + sha256 (둘 중 하나라도 변경 시 업데이트)
         - 메타 저장소와도 동기화 (로컬 JSON)
         - 삭제: Blob/메타/인덱스 간 불일치 정리
@@ -327,11 +409,16 @@ class AzureBlobRAGSystem:
         print("\n" + "=" * 64)
         print("🔄 Azure AI Search 인덱스 증분 동기화 시작...")
 
+        # DART API를 통해 최신 사업보고서 확인 및 다운로드 (필터링 시)
+        if company_name_filter:
+            self._ensure_latest_report_from_dart(company_name_filter)
+
         # 0) 소스 나열
         source_blobs: Dict[str, Dict[str, str]] = {}
         for blob in self.container_client.list_blobs():
             name = blob.name
-            if not name.lower().endswith((".pdf", ".txt")):
+            # DART에서 다운로드한 xml 파일도 처리 대상에 포함
+            if not name.lower().endswith((".pdf", ".txt", ".xml")):
                 continue
             if company_name_filter:
                 expected_prefix = f"[{company_name_filter}]"
@@ -390,9 +477,19 @@ class AzureBlobRAGSystem:
 
             if new_docs:
                 print("⚡ 문서 벡터 인덱스에 upsert 중...")
-                for doc in tqdm(new_docs, desc="인덱싱"):
-                    # LlamaIndex는 동일 ref_doc_id(doc.id_)로 insert 시 업데이트 처리
-                    self.index.insert(doc)
+                node_parser = Settings.node_parser
+                for doc in new_docs:
+                    print(f"  - 문서 '{doc.id_}' 노드 분할 중...")
+                    nodes = node_parser.get_nodes_from_documents([doc])
+                    print(f"  - '{doc.id_}'에서 {len(nodes)}개의 노드 생성. 50개씩 배치하여 인덱싱합니다.")
+                    
+                    # 50개씩 배치로 인덱싱
+                    batch_size = 50
+                    for i in tqdm(range(0, len(nodes), batch_size), desc=f"'{doc.id_}' 인덱싱"):
+                        batch = nodes[i:i+batch_size]
+                        self.index.insert_nodes(batch)
+                    
+                    print(f"  - 문서 '{doc.id_}' 인덱싱 완료.")
 
                 # 메타 저장소 업데이트 (Blob props 기반 + 로딩 메타 기반)
                 for doc in new_docs:
@@ -457,3 +554,4 @@ def test_azure_rag_system():
 
 if __name__ == "__main__":
     test_azure_rag_system()
+
