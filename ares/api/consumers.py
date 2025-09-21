@@ -31,38 +31,90 @@ session_lock = threading.Lock()
 # Analysis Worker Thread (수정됨)
 # ==============================================================================
 def analysis_worker(sid, audio_buffer, full_transcript, user_gender, total_speaking_time):
-    """백그라운드에서 최종 음성/영상 분석을 실행하고 결과를 그룹으로 전송"""
+    """백그라운드에서 최종 음성/영상/텍스트 분석을 실행하고 결과를 그룹으로 전송"""
+    # Django 설정 로딩이 끝난 후, 함수 내에서 import
+    from ares.api.models import InterviewSession, InterviewTurn
+    from ares.api.services.rag.final_interview_rag import RAGInterviewBot
+
     group_name = f"session_{sid}"
     channel_layer = get_channel_layer()
     print(f"[{sid}] 백그라운드 분석 시작...")
 
-    # 1. Voice Analysis (오디오 데이터가 있을 때만 실행)
-    if audio_buffer and len(audio_buffer) > 1000: # 최소 데이터 길이 보장
+    # 1. Voice Analysis
+    if audio_buffer and len(audio_buffer) > 1000:
         try:
             if len(audio_buffer) % 2 != 0:
                 audio_buffer = audio_buffer[:-1]
             
             audio_data = np.frombuffer(audio_buffer, dtype=np.int16).astype(np.float32) / 32768.0
             sample_rate = 16000
-            # analyze_voice_from_buffer에 total_speaking_time 전달
             voice_scores = analyze_voice_from_buffer(audio_data, sample_rate, full_transcript, gender=user_gender, total_speaking_time=total_speaking_time)
             
             message_data = {"event": "voice_scores_update", "data": voice_scores} if voice_scores else {"event": "error", "data": {"message": "음성 점수 분석에 실패했습니다."}}
             async_to_sync(channel_layer.group_send)(group_name, {"type": "analysis.event", "data": message_data})
         except Exception as e:
             print(f"[{sid}] 음성 분석 워커 오류: {e}")
-            async_to_sync(channel_layer.group_send)(group_name, {"type": "analysis.event", "data": {"event": "error", "data": {"message": f"음성 분석 중 오류 발생: {e}"}}})
-    else:
-        print(f"[{sid}] 오디오 데이터가 너무 짧거나 없어 음성 분석을 건너뜁니다.")
-        async_to_sync(channel_layer.group_send)(group_name, {"type": "analysis.event", "data": {"event": "voice_scores_update", "data": {}}})
 
     # 2. Video Analysis
     with session_lock:
-        session = client_sessions.get(sid)
-        if session:
-            video_analysis = get_detailed_analysis_data(session["metrics"])
+        session_data = client_sessions.get(sid)
+        if session_data:
+            video_analysis = get_detailed_analysis_data(session_data["metrics"])
             async_to_sync(channel_layer.group_send)(group_name, {"type": "analysis.event", "data": {"event": "video_analysis_update", "data": video_analysis}})
 
+    # 3. Final Text Analysis (RAG-based Report)
+    try:
+        print(f"[{sid}] 텍스트 분석: DB에서 세션 조회 시작...")
+        session = InterviewSession.objects.get(id=sid)
+        print(f"[{sid}] 텍스트 분석: 세션 조회 완료. RAG 컨텍스트 확인 시작...")
+        rag_context = session.rag_context or {}
+        
+        if not rag_context.get("company_name") or not rag_context.get("job_title"):
+            raise ValueError("RAG 컨텍스트에 회사/직무 정보가 없습니다.")
+        
+        print(f"[{sid}] 텍스트 분석: RAG 봇 인스턴스화 시작...")
+        rag_bot = RAGInterviewBot(
+            company_name=rag_context.get("company_name"),
+            job_title=rag_context.get("job_title"),
+            container_name=rag_context.get("container_name"),
+            index_name=rag_context.get("index_name"),
+            interviewer_mode=session.interviewer_mode,
+            resume_context=session.resume_context,
+            ncs_context=session.context,
+            jd_context=session.jd_context,
+        )
+        print(f"[{sid}] 텍스트 분석: RAG 봇 인스턴스화 완료. 대화 기록 조회 시작...")
+
+        turns = session.turns.order_by("turn_index").all()
+        transcript = []
+        for t in turns:
+            transcript.append({
+                "question": t.question,
+                "answer": t.answer or "",
+                "analysis": t.scores or {},
+            })
+        print(f"[{sid}] 텍스트 분석: 대화 기록 조회 완료. 최종 리포트 생성 시작 (LLM 호출)...")
+
+        # 이력서 분석은 최종 리포트 생성 시 함께 처리됨
+        final_report = rag_bot.generate_detailed_final_report(
+            transcript=transcript,
+            interview_plan=rag_context.get("interview_plan", {}),
+            resume_feedback_analysis={} # 이력서 분석은 리포트 생성 시 내부적으로 처리
+        )
+        print(f"[{sid}] 텍스트 분석: 최종 리포트 생성 완료.")
+
+        async_to_sync(channel_layer.group_send)(group_name, {
+            "type": "analysis.event",
+            "data": {"event": "text_analysis_update", "data": final_report}
+        })
+
+    except Exception as e:
+        print(f"[{sid}] 최종 텍스트 분석 리포트 생성 오류: {e}")
+        async_to_sync(channel_layer.group_send)(group_name, {
+            "type": "analysis.event",
+            "data": {"event": "error", "data": {"message": f"텍스트 분석 리포트 생성 중 오류 발생: {e}"}}
+        })
+    
     print(f"[{sid}] 백그라운드 분석 종료.")
 
 # ==============================================================================
@@ -75,12 +127,7 @@ class InterviewResultsConsumer(AsyncJsonWebsocketConsumer):
         
         with session_lock:
             if self.sid not in client_sessions:
-                # 실제 발화 시간 측정을 위한 변수 추가
-                client_sessions[self.sid] = {
-                    "metrics": InterviewMetrics(),
-                    "last_start_time": None,
-                    "total_speaking_time": 0.0
-                }
+                client_sessions[self.sid] = {"metrics": InterviewMetrics()}
         
         await self.channel_layer.group_add(self.group_name, self.channel_name)
         await self.accept()
@@ -107,25 +154,12 @@ class InterviewResultsConsumer(AsyncJsonWebsocketConsumer):
                     session["metrics"].analysis_start_time = time.time()
                 asyncio.create_task(self.send_json({"event": "analysis_status", "data": {"analyzing": is_analyzing}}))
 
-            elif event == 'recording_started':
-                print(f"[{self.sid}] 녹음 시작 이벤트 수신")
-                session['last_start_time'] = time.time()
-
-            elif event == 'recording_stopped':
-                print(f"[{self.sid}] 녹음 중지 이벤트 수신")
-                if session.get('last_start_time'):
-                    elapsed = time.time() - session['last_start_time']
-                    session['total_speaking_time'] += elapsed
-                    session['last_start_time'] = None
-                    print(f"[{self.sid}] 현재까지 누적 발화 시간: {session['total_speaking_time']:.2f}초")
-
             elif event == 'finish_analysis_signal':
                 asyncio.create_task(self.send_json({"event": "analysis_pending", "data": {"message": "분석을 시작합니다..."}}))
                 
                 session["metrics"].analyzing = False
                 session["metrics"].analysis_end_time = time.time()
 
-                # 백그라운드 분석 시작
                 asyncio.create_task(self.start_analysis_after_delay(session))
 
     async def start_analysis_after_delay(self, session):
@@ -134,6 +168,7 @@ class InterviewResultsConsumer(AsyncJsonWebsocketConsumer):
         with session_lock:
             final_audio_buffer = session.get("final_audio_buffer", bytearray())
             full_transcript = " ".join(session.get("full_transcript", []))
+            # total_speaking_time은 현재 사용되지 않으므로 제거 또는 주석 처리 가능
             total_speaking_time = session.get("total_speaking_time", 0.0)
 
             user = self.scope['user']
@@ -141,11 +176,9 @@ class InterviewResultsConsumer(AsyncJsonWebsocketConsumer):
             if user.is_authenticated and hasattr(user, 'gender') and user.gender:
                 user_gender = user.gender.upper()
 
-        # analysis_worker를 비동기적으로 실행
         await asyncio.to_thread(analysis_worker, self.sid, final_audio_buffer, full_transcript, user_gender, total_speaking_time)
 
     async def analysis_event(self, event):
-        """다른 consumer나 worker로부터 받은 분석 결과를 클라이언트에 전송"""
         await self.send_json(event['data'])
 
 # ==============================================================================
@@ -156,18 +189,16 @@ class InterviewAudioConsumer(AsyncWebsocketConsumer):
         self.sid = self.scope['url_route']['kwargs']['sid']
         self.group_name = f"session_{self.sid}"
         self.channel_layer = get_channel_layer()
-        self.stt_queue = queue.Queue() # 스레드 안전 큐
+        self.stt_queue = queue.Queue()
 
         def stt_callback(text, duration_sec, event_type):
             self.stt_queue.put({"text": text, "type": event_type})
             
         with session_lock:
-            # 세션이 없으면 생성 (ResultsConsumer보다 먼저 연결될 경우 대비)
             if self.sid not in client_sessions:
                 client_sessions[self.sid] = {"metrics": InterviewMetrics()}
             
             session = client_sessions.get(self.sid)
-            # Raw PCM 스트림 포맷 정의
             try:
                 import azure.cognitiveservices.speech as speechsdk
                 pcm_format = speechsdk.audio.AudioStreamFormat(samples_per_second=16000, bits_per_sample=16, channels=1)
@@ -181,7 +212,6 @@ class InterviewAudioConsumer(AsyncWebsocketConsumer):
                 session["full_transcript"] = []
 
         await self.accept()
-        # 큐를 주기적으로 확인하는 백그라운드 작업 시작
         self.queue_checker_task = asyncio.create_task(self.check_stt_queue())
 
     async def disconnect(self, close_code):
@@ -200,11 +230,9 @@ class InterviewAudioConsumer(AsyncWebsocketConsumer):
                     stt_result = self.stt_queue.get_nowait()
                     if not stt_result or not stt_result.get("text"): continue
 
-                    # 1. STT 결과를 실시간으로 ResultsConsumer에 전송
                     message_data = {"event": "speech_update", "data": stt_result}
                     await self.channel_layer.group_send(self.group_name, {"type": "analysis.event", "data": message_data})
                     
-                    # 2. 최종 분석을 위해 transcript를 세션에 저장 (최종 인식 결과만)
                     if stt_result.get("type") == "recognized":
                         with session_lock:
                             session = client_sessions.get(self.sid)
@@ -218,7 +246,6 @@ class InterviewAudioConsumer(AsyncWebsocketConsumer):
             session = client_sessions.get(self.sid)
             if not session: return
             
-            # 들어오는 모든 바이너리 데이터는 Raw PCM으로 간주
             if session["metrics"].analyzing:
                 if session.get("stt_recognizer"):
                     session["stt_recognizer"].write_chunk(bytes_data)
@@ -243,7 +270,6 @@ class InterviewVideoConsumer(AsyncWebsocketConsumer):
             if frame is not None:
                 video_metrics, _ = process_frame(frame, session["metrics"])
                 if video_metrics:
-                    # 비동기 Consumer에서는 channel_layer를 직접 await
                     await self.channel_layer.group_send(
                         self.group_name,
                         {
