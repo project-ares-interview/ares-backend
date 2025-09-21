@@ -1,5 +1,6 @@
 # ares/api/views/v1/resume_analysis.py
 import json
+from django.contrib.auth import get_user_model
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status, permissions
@@ -21,6 +22,7 @@ from ares.api.utils.ai_utils import chat_complete
 from ares.api.utils.text_utils import ensure_full_text
 
 _END_SENTINEL = "<<END_OF_REPORT>>"
+User = get_user_model()
 
 
 class ResumeAnalysisAPIView(APIView):
@@ -227,7 +229,28 @@ The input can be either text or file uploads.
             company_meta=company_meta
         )
 
-        # 5) 다음 단계 활용을 위해 입력 컨텍스트 포함
+        # 5) 분석 결과를 Profile에 저장 (개발/테스트 편의성)
+        try:
+            user = None
+            if request.user and request.user.is_authenticated:
+                user = request.user
+            else:
+                # 로그인하지 않은 경우, 테스트용으로 ID 1번 유저를 사용
+                user = User.objects.filter(id=1).first()
+
+            if user:
+                profile = user.profile
+                profile.jd_context = refined_jd_text
+                profile.resume_context = refined_resume_text
+                profile.research_context = refined_research_text
+                profile.save()
+            else:
+                print("[WARNING] No user found to save contexts to profile.")
+        except Exception as e:
+            print(f"[WARNING] Failed to save contexts to user profile: {e}")
+
+
+        # 6) 다음 단계 활용을 위해 입력 컨텍스트 포함
         structured_ncs_context = analysis_result.get("ncs_context", {})
 
         analysis_result["input_contexts"] = {

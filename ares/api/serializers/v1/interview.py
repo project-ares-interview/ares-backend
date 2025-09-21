@@ -16,14 +16,16 @@ class MetaIn(serializers.Serializer):
 # ===== Start =====
 class InterviewStartIn(serializers.Serializer):
     jd_context = serializers.CharField(
-        required=True,
-        allow_blank=False,
+        required=False,
+        allow_blank=True,
+        default="",
         trim_whitespace=True,
         help_text="The full text of the job description."
     )
     resume_context = serializers.CharField(
-        required=True,
-        allow_blank=False,
+        required=False,
+        allow_blank=True,
+        default="",
         trim_whitespace=True,
         help_text="The full text of the candidate's resume."
     )

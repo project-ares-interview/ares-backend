@@ -5,6 +5,7 @@ import traceback
 from typing import Any, Dict
 from uuid import uuid4
 
+from django.contrib.auth import get_user_model
 from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -23,6 +24,7 @@ except ImportError:
     search_ncs_hybrid = None
 
 log = get_logger(__name__)
+User = get_user_model()
 
 # Constants from the original file
 FALLBACK_QUESTION = "가벼운 아이스브레이킹으로 시작해볼게요. 최근에 재미있게 본 콘텐츠가 있나요?"
@@ -97,6 +99,32 @@ It generates the first question and returns a new session ID.
             if not company_name or not job_title:
                 return Response({"error": "meta 정보에 company_name과 job_title이 모두 필요합니다."}, status=status.HTTP_400_BAD_REQUEST)
 
+            # --- 컨텍스트 로드 로직 (프로필 우선) ---
+            user = None
+            if request.user and request.user.is_authenticated:
+                user = request.user
+            else:
+                user = User.objects.filter(id=1).first()
+
+            profile_jd_context = ""
+            profile_resume_context = ""
+            profile_research_context = ""
+            if user and hasattr(user, 'profile'):
+                profile_jd_context = user.profile.jd_context
+                profile_resume_context = user.profile.resume_context
+                profile_research_context = user.profile.research_context
+
+            jd_context = v.get("jd_context") or profile_jd_context
+            resume_context = v.get("resume_context") or profile_resume_context
+            research_context = v.get("research_context") or profile_research_context
+            
+            # --- 일반 면접 분기 처리 ---
+            if not jd_context and not resume_context:
+                log.info(f"[{trace_id}] No context provided. Starting a general interview.")
+                jd_context = "일반적인 직무 기술서입니다. 특정 기술보다는 문제 해결 능력, 커뮤니케이션, 협업 능력, 학습 능력 등 모든 직무에 공통적으로 요구되는 핵심 역량에 초점을 맞춰주세요."
+                resume_context = "제출된 이력서가 없습니다. 지원자의 과거 경험에 의존하지 말고, 역량을 검증할 수 있는 일반적인 상황 질문이나 케이스 질문 위주로 진행해주세요."
+                research_context = "" # 일반 면접에서는 리서치 컨텍스트를 비웁니다.
+
             safe_company_name = unidecode(company_name.lower()).replace(" ", "-")
             index_name = f"{safe_company_name}-report-index"
             container_name = os.getenv("AZURE_BLOB_CONTAINER", "interview-data")
@@ -109,8 +137,8 @@ It generates the first question and returns a new session ID.
             rag_bot = RAGInterviewBot(
                 company_name=company_name, job_title=job_title,
                 difficulty=difficulty, interviewer_mode=interviewer_mode,
-                ncs_context=ncs_ctx, jd_context=v.get("jd_context", ""),
-                resume_context=v.get("resume_context", ""), research_context=v.get("research_context", ""),
+                ncs_context=ncs_ctx, jd_context=jd_context,
+                resume_context=resume_context, research_context=research_context,
             )
 
             if not getattr(rag_bot, "rag_ready", True):
@@ -118,7 +146,6 @@ It generates the first question and returns a new session ID.
 
             plans = rag_bot.design_interview_plan()
 
-            # get_first_question은 RAGInterviewBot 내부의 self.plan (정규화된 계획)을 사용합니다.
             first = rag_bot.get_first_question()
 
             if not first:
@@ -128,19 +155,17 @@ It generates the first question and returns a new session ID.
             log.info(f"[{trace_id}] ✅ 구조화 면접 계획 수립 완료")
 
             rag_context_to_save = {
-                "interview_plans": plans,  # raw_v2_plan과 normalized_plan이 모두 포함된 dict
+                "interview_plans": plans,
                 "company_name": company_name,
                 "job_title": job_title, "container_name": container_name, "index_name": index_name,
             }
 
-            # FSM 초기화: 메인 질문은 0,0 부터 시작
             fsm = dict(DEFAULT_FSM)
             fsm["stage_idx"] = 0
             fsm["question_idx"] = 0
 
             session = InterviewSession.objects.create(
-                user=request.user if getattr(request.user, "is_authenticated", False) else None,
-                jd_context=v.get("jd_context", ""), resume_context=v.get("resume_context", ""),
+                user=user if user and user.is_authenticated else None,
                 ncs_query=ncs_ctx.get("ncs_query", ""), meta={**to_jsonable(meta), "fsm": fsm},
                 context=to_jsonable(ncs_ctx), rag_context=to_jsonable(rag_context_to_save),
                 language=(v.get("language") or "ko").lower(), difficulty=difficulty,

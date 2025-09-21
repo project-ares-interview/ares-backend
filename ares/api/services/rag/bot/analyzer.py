@@ -39,7 +39,9 @@ class AnswerAnalyzer:
         print(f"(Analyzing answer... Interviewer: {self.bot.interviewer_mode})")
         structured = self._structured_evaluation(role=role, answer=answer)
         rag_analysis = self._rag_narrative_analysis(question=question, answer=answer)
-        return {"structured": structured, "rag_analysis": rag_analysis}
+        
+        # 두 분석 결과를 하나의 딕셔너리로 병합
+        return {**structured, **rag_analysis}
 
     def _rag_narrative_analysis(self, question: str, answer: str) -> Dict:
         if not self.bot.rag_ready:

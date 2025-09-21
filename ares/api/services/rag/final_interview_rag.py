@@ -241,13 +241,15 @@ class RAGInterviewBot:
         transcript: List[Dict[str, Any]], 
         structured_scores: List[Dict[str, Any]],
         interview_plan: Optional[Dict[str, Any]] = None,
-        resume_feedback: Optional[Dict[str, Any]] = None
+        resume_feedback: Optional[Dict[str, Any]] = None,
+        full_contexts: Optional[Dict[str, str]] = None
     ) -> Dict[str, Any]:
         return self.reporter.build_report(
             transcript=transcript, 
             structured_scores=structured_scores,
             interview_plan=interview_plan,
-            resume_feedback=resume_feedback
+            resume_feedback=resume_feedback,
+            full_contexts=full_contexts
         )
 
     # -----------------------------

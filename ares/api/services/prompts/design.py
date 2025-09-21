@@ -48,6 +48,7 @@ prompt_interview_designer_v2 = (
 요구사항:
 - phases: intro → core → wrapup 순서
 - 각 item은 question_type을 다음 중 하나로: ["icebreaking","self_intro","motivation","star","competency","case","system","hard","wrapup"]
+- **[매우 중요] 각 질문은 하나의 명확한 목적에만 집중해야 합니다. 예를 들어, 경험을 묻는 질문과 지원 동기를 묻는 질문을 절대 한 문장으로 합치지 마세요.**
 - **[매우 중요] 질문 생성 시 'STAR 방식으로', 'CASE 기법으로' 등 평가 프레임워크의 이름을 절대 직접 언급하지 마세요. 대신, 해당 프레임워크로 답변할 수밖에 없는 자연스러운 행동/경험 기반 질문을 하세요.**
 - icebreaking 질문은 지원자가 면접 장소에 도착하기까지의 과정이나 현재 컨디션 등, 면접 당일의 상황과 관련된 아주 가벼운 스몰 토크여야 합니다. (좋은 예: '오늘 오시는 길은 어떠셨나요?', '점심은 드셨나요?' / 나쁜 예: '가장 감명깊게 읽은 책은?')
 - difficulty_curve: ["easy","normal","hard"] (core 내 질문이 자연스럽게 상승)
@@ -120,8 +121,7 @@ prompt_interview_designer_v2 = (
     {
       "phase": "wrapup",
       "items": [
-        {"question_type":"wrapup","question":"마지막으로 질문하고 싶은 것이 있으신가요?", "followups":[], "expected_points": ["회사/직무에 대한 관심도", "질문의 깊이"], "rubric": [...]},
-        {"question_type":"wrapup","question":"마지막으로 하고 싶은 말이 있으신가요?", "followups":[], "expected_points": ["입사 의지", "마지막 어필"], "rubric": [...]}
+        {"question_type":"wrapup","question":"마지막으로 질문이나 하고 싶은 말이 있으신가요?", "followups":[], "expected_points": ["회사/직무에 대한 관심도", "입사 의지", "마지막 어필"], "rubric": [...]}
       ]
     }
   ]
