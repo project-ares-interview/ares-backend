@@ -9,6 +9,7 @@ from ares.api.utils.common_utils import get_logger, chunk_text
 from ares.api.utils.search_utils import search_ncs_hybrid, format_ncs_context
 from ares.api.services.ncs_service import summarize_top_ncs
 from ares.api.utils.ai_utils import chat_complete
+from ares.api.services.company_data import get_company_description
 
 _log = get_logger("resume")
 
@@ -70,9 +71,22 @@ def _inject_company_ctx(prompt: str, meta: Dict[str, Any] | None) -> str:
     loc = _s(meta.get("location", ""))
     kpis = ", ".join([_s(x) for x in meta.get("kpi", []) if _s(x)])[:200]
     skills = ", ".join([_s(x) for x in meta.get("requirements", []) if _s(x)])[:200]
+    
+    ideal_talent_profile = ""
+    if comp:
+        ideal_talent_profile = get_company_description(comp)
+        if "정보 없음" in ideal_talent_profile:
+            ideal_talent_profile = ""
+
     ctx = (f"[회사 컨텍스트]\n" 
            f"- 회사: {comp or '미상'} | 부서/직무: {div or '-'} / {role or '-'} | 근무지: {loc or '-'}\n" 
-           f"- KPI: {kpis or '-'} | 스킬: {skills or '-'}\n\n")
+           f"- KPI: {kpis or '-'} | 스킬: {skills or '-'}\n")
+
+    if ideal_talent_profile:
+        ctx += f"\n[회사의 인재상]\n{ideal_talent_profile[:1000]}\n\n"
+    else:
+        ctx += "\n"
+
     return ctx + prompt
 
 # ---------- 프롬프트(시스템) ----------

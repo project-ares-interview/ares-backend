@@ -1,9 +1,9 @@
-# ares/api/services/rag/new_azure_rag_llamaindex.py
 import os
 import io
 import json
 import hashlib
 import tempfile
+import time
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional
 from datetime import datetime, timezone
@@ -126,13 +126,13 @@ class AzureBlobRAGSystem:
         connect_str = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
         search_endpoint = os.getenv("AZURE_SEARCH_ENDPOINT")
         search_key = os.getenv("AZURE_SEARCH_KEY")
-        credential = AzureKeyCredential(search_key)
+        self.credential = AzureKeyCredential(search_key)
 
         self.blob_service_client = BlobServiceClient.from_connection_string(connect_str)
         self.container_client = self.blob_service_client.get_container_client(self.container_name)
 
-        self.search_client = SearchClient(endpoint=search_endpoint, index_name=self.index_name, credential=credential)
-        self.search_index_client = SearchIndexClient(endpoint=search_endpoint, credential=credential)
+        self.search_client = SearchClient(endpoint=search_endpoint, index_name=self.index_name, credential=self.credential)
+        self.search_index_client = SearchIndexClient(endpoint=search_endpoint, credential=self.credential)
 
         # DART 연동 및 기업 데이터 서비스
         try:
@@ -148,8 +148,13 @@ class AzureBlobRAGSystem:
 
         # LlamaIndex 설정
         self._setup_llamaindex()
+        self._setup_vector_store()
 
-        # 벡터 스토어/인덱스/쿼리엔진
+        # 메타 저장소
+        self.meta_store = _MetaStore()
+
+    def _setup_vector_store(self):
+        """벡터 스토어, 스토리지 컨텍스트, 인덱스, 쿼리 엔진을 설정합니다."""
         try:
             self.vector_store = AzureAISearchVectorStore(
                 search_or_index_client=self.search_index_client,
@@ -167,9 +172,6 @@ class AzureBlobRAGSystem:
             print("✅ Azure AI Search VectorStore 및 쿼리 엔진 설정 완료")
         except Exception as e:
             raise ConnectionError(f"Azure AI Search VectorStore 설정 실패: {e}")
-
-        # 메타 저장소
-        self.meta_store = _MetaStore()
 
     def is_ready(self) -> bool:
         """RAG 시스템이 쿼리를 수행할 준비가 되었는지 확인"""
@@ -361,7 +363,12 @@ class AzureBlobRAGSystem:
 
         print(f"🎯 DART에서 '{company_name}'의 최신 사업보고서 확인 중...")
         
-        exact_company_name = self.company_data.get(company_name)
+        # 임시 예외 처리
+        if company_name == "기아":
+            exact_company_name = "KIA"
+        else:
+            exact_company_name = self.company_data.get(company_name)
+
         if not exact_company_name:
             print(f"  ⚠️ 기업 데이터에서 '{company_name}'을(를) 찾을 수 없습니다.")
             return
@@ -435,72 +442,65 @@ class AzureBlobRAGSystem:
         source_set = set(source_blobs.keys())
         indexed_set = set(indexed_docs.keys())
 
-        # 2) 삭제 대상
-        to_delete_in_index = indexed_set - source_set              # 인덱스에는 있으나 Blob에 없는 것
-        to_delete_in_meta = meta_keys - source_set                 # 메타에는 있으나 Blob에 없는 것
+        sanitized_source_set = {_sanitize_id(name) for name in source_set}
 
-        if to_delete_in_index:
-            print(f"\n🧹 Blob에 없는 {len(to_delete_in_index)}개를 인덱스에서 삭제합니다.")
-            for fname in to_delete_in_index:
-                self.delete_doc(fname)
+        to_delete_in_index = indexed_set - sanitized_source_set
+        to_delete_in_meta = meta_keys - sanitized_source_set
 
-        if to_delete_in_meta:
-            print(f"\n🧹 Blob에 없는 {len(to_delete_in_meta)}개를 메타 저장소에서 정리합니다.")
-            for fname in to_delete_in_meta:
-                self.meta_store.delete(fname)
-
-        # 3) 변경/추가 판정
+        # 3) 변경/추가 판정 (파일명 기반)
         to_process: List[str] = []
-        for fname, src_meta in source_blobs.items():
-            src_etag = src_meta.get("etag", "")
-            meta_entry = self.meta_store.get(fname) or {}
-            meta_etag = meta_entry.get("etag", "")
-            meta_sha = meta_entry.get("sha256", "")
-
-            # 인덱스 메타(참고)
-            idx_entry = indexed_docs.get(fname) or {}
-            idx_etag = idx_entry.get("etag", "")
-            idx_sha = idx_entry.get("sha256", "")
-
-            # 우선순위: ETag가 다르면 다운로드/해시 후 비교 → sha 변경 여부 최종판정
-            if src_etag and src_etag == meta_etag and meta_sha and meta_sha == idx_sha:
-                # 소스 ETag = 메타 ETag = 인덱스 sha 동일 → 스킵
-                continue
-            # ETag 불일치 또는 sha 미기록 → 처리 대상
+        indexed_fnames = set(indexed_docs.keys())
+        for fname in source_blobs.keys():
+            sanitized_fname = _sanitize_id(fname)
+            if sanitized_fname in indexed_fnames:
+                continue  # 이미 인덱싱된 파일은 건너뛰기
+            
             to_process.append(fname)
 
-        # 4) 추가/업데이트 처리
-        if to_process:
-            print(f"\n➕ {len(to_process)}개 파일 인덱싱(추가/업데이트) 처리.")
-            blob_clients: List[BlobClient] = [self.container_client.get_blob_client(n) for n in to_process]
-            new_docs = self.load_documents_from_blob(blob_clients)
+        # 변경/삭제가 필요하면 증분 업데이트 수행
+        if to_delete_in_index or to_delete_in_meta or to_process:
+            print("\n🔥 변경 사항 감지. 인덱스를 증분 업데이트합니다...")
 
-            if new_docs:
-                print("⚡ 문서 벡터 인덱스에 upsert 중...")
-                node_parser = Settings.node_parser
-                for doc in new_docs:
-                    print(f"  - 문서 '{doc.id_}' 노드 분할 중...")
-                    nodes = node_parser.get_nodes_from_documents([doc])
-                    print(f"  - '{doc.id_}'에서 {len(nodes)}개의 노드 생성. 50개씩 배치하여 인덱싱합니다.")
-                    
-                    # 50개씩 배치로 인덱싱
-                    batch_size = 50
-                    for i in tqdm(range(0, len(nodes), batch_size), desc=f"'{doc.id_}' 인덱싱"):
-                        batch = nodes[i:i+batch_size]
-                        self.index.insert_nodes(batch)
-                    
-                    print(f"  - 문서 '{doc.id_}' 인덱싱 완료.")
+            # 1. 소스에서 사라진 문서 삭제
+            for doc_id in to_delete_in_index:
+                self.delete_doc(doc_id)
+            
+            # 2. 메타 저장소에서 불일치 항목 삭제
+            for doc_id in to_delete_in_meta:
+                self.meta_store.delete(doc_id)
 
-                # 메타 저장소 업데이트 (Blob props 기반 + 로딩 메타 기반)
-                for doc in new_docs:
-                    fname = doc.metadata.get("file_name") or doc.id_
-                    self.meta_store.set(fname, {
-                        "etag": doc.metadata.get("etag", ""),
-                        "sha256": doc.metadata.get("sha256", ""),
-                        "last_modified": doc.metadata.get("last_modified", ""),
-                    })
-                self.meta_store.save()
-                print("  ✅ 인덱싱 및 메타 저장소 업데이트 완료.")
+            # 3. 신규/변경된 문서 처리
+            if to_process:
+                blobs_to_load = [self.container_client.get_blob_client(b) for b in to_process]
+                new_docs = self.load_documents_from_blob(blobs_to_load)
+
+                if new_docs:
+                    print(f"⚡ 문서 {len(new_docs)}개를 새로 인덱싱/업데이트합니다...")
+                    node_parser = Settings.node_parser
+                    for doc in new_docs:
+                        # 업데이트 시 기존 노드가孤立되는 것을 방지하기 위해 먼저 삭제
+                        self.delete_doc(doc.id_) 
+
+                        nodes = node_parser.get_nodes_from_documents([doc])
+                        print(f"  - '{doc.id_}'에서 {len(nodes)}개의 노드 생성. 50개씩 배치하여 인덱싱합니다.")
+                        
+                        batch_size = 50
+                        for i in tqdm(range(0, len(nodes), batch_size), desc=f"'{doc.id_}' 인덱싱"):
+                            batch = nodes[i:i+batch_size]
+                            self.index.insert_nodes(batch)
+                        
+                        print(f"  - 문서 '{doc.id_}' 인덱싱 완료.")
+                        
+                        # 처리된 문서의 메타데이터 업데이트
+                        fname = doc.metadata.get("file_name") or doc.id_
+                        self.meta_store.set(fname, {
+                            "etag": doc.metadata.get("etag", ""),
+                            "sha256": doc.metadata.get("sha256", ""),
+                            "last_modified": doc.metadata.get("last_modified", ""),
+                        })
+            
+            self.meta_store.save()
+            print("  ✅ 증분 인덱싱 및 메타 저장소 업데이트 완료.")
         else:
             print("\n✅ 변경 사항 없음. 인덱스 최신 상태.")
 

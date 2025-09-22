@@ -15,6 +15,7 @@ from ares.api.services.prompts import (
     prompt_interview_designer_v2,
     make_icebreak_question_llm_or_template,
 )
+from ares.api.services.company_data import get_company_description
 from .base import RAGBotBase
 from .utils import (
     _truncate,
@@ -44,6 +45,10 @@ class InterviewPlanner:
             query_text = f"Summarize key business areas, recent performance, major risks for {safe_company_name}, especially related to the {safe_job_title} role."
             business_info = self.bot.summarize_company_context(query_text)
 
+            ideal_candidate_profile = get_company_description(self.bot.company_name)
+            if "정보 없음" in ideal_candidate_profile:
+                ideal_candidate_profile = "(별도 인재상 정보 없음)"
+
             ncs_info = ""
             ncs_dict = self.bot._ensure_ncs_dict(self.bot.ncs_context)
             if isinstance(ncs_dict.get("ncs"), list):
@@ -62,6 +67,7 @@ class InterviewPlanner:
                 .replace("{job_title}", self.bot.job_title)
                 .replace("{difficulty_instruction}", difficulty_instruction)
                 .replace("{business_info}", business_info)
+                .replace("{ideal_candidate_profile}", ideal_candidate_profile)
                 .replace("{jd_context}", _truncate(self.bot.jd_context, 1200))
                 .replace("{resume_context}", _truncate(self.bot.resume_context, 1200))
                 .replace("{research_context}", _truncate(self.bot.research_context, 1200))

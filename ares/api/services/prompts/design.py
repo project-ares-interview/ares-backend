@@ -50,6 +50,7 @@ prompt_interview_designer_v2 = (
 - 각 item은 question_type을 다음 중 하나로: ["icebreaking","self_intro","motivation","star","competency","case","system","hard","wrapup"]
 - **[매우 중요] 각 질문은 하나의 명확한 목적에만 집중해야 합니다. 예를 들어, 경험을 묻는 질문과 지원 동기를 묻는 질문을 절대 한 문장으로 합치지 마세요.**
 - **[매우 중요] 질문 생성 시 'STAR 방식으로', 'CASE 기법으로' 등 평가 프레임워크의 이름을 절대 직접 언급하지 마세요. 대신, 해당 프레임워크로 답변할 수밖에 없는 자연스러운 행동/경험 기반 질문을 하세요.**
+- **[중요] `회사의 인재상`을 참고하여, 지원자의 가치관과 경험이 회사의 문화와 부합하는지 확인할 수 있는 질문을 1~2개 포함하세요.**
 - icebreaking 질문은 지원자가 면접 장소에 도착하기까지의 과정이나 현재 컨디션 등, 면접 당일의 상황과 관련된 아주 가벼운 스몰 토크여야 합니다. (좋은 예: '오늘 오시는 길은 어떠셨나요?', '점심은 드셨나요?' / 나쁜 예: '가장 감명깊게 읽은 책은?')
 - difficulty_curve: ["easy","normal","hard"] (core 내 질문이 자연스럽게 상승)
 - mix_ratio: {"star":0.x,"case":0.x,"competency":0.x,"system":0.x} 합 1.0 (core 기준)
@@ -61,6 +62,10 @@ prompt_interview_designer_v2 = (
 
 [[최신 사업 요약]]  
 {business_info}
+
+[[회사의 인재상]]
+{ideal_candidate_profile}
+
 [[JD]]  
 {jd_context}
 [[이력서]]  
