@@ -25,31 +25,31 @@ prompt_rag_final_report = (
 [자료 3] RAG 기반 이력서 분석 결과:
 {resume_feedback_analysis}
 [출력 JSON]
-{
+{{
   "assessment_of_plan_achievement": "...",
   "overall_summary": "...",
   "core_competency_analysis": [
-    { "competency": "핵심 역량 1", "assessment": "[최상]|[상]|[중]|[하]", "evidence": "판단 근거..." },
-    { "competency": "핵심 역량 2", "assessment": "[최상]|[상]|[중]|[하]", "evidence": "판단 근거..." },
-    { "competency": "핵심 역량 3", "assessment": "[최상]|[상]|[중]|[하]", "evidence": "판단 근거..." }
+    {{ "competency": "핵심 역량 1", "assessment": "[최상]|[상]|[중]|[하]", "evidence": "판단 근거..." }},
+    {{ "competency": "핵심 역량 2", "assessment": "[최상]|[상]|[중]|[하]", "evidence": "판단 근거..." }},
+    {{ "competency": "핵심 역량 3", "assessment": "[최상]|[상]|[중]|[하]", "evidence": "판단 근거..." }}
   ],
   "growth_potential": "...",
-  "resume_feedback": {
+  "resume_feedback": {{
     "job_fit_assessment": "...",
     "strengths_and_opportunities": "...",
     "gaps_and_improvements": "..."
-  },
+  }},
   "question_by_question_feedback": [
-    {
+    {{
       "question": "면접 질문 1",
       "question_intent": "...",
       "answer": "지원자 답변 1",
-      "keyword_analysis": { "job_related_keywords": ["..."], "comment": "..." },
-      "evaluation": { "applied_framework": "STAR|CASE|SYSTEMDESIGN|COMPETENCY(+C/L/M 선택)", "feedback": "..." },
+      "keyword_analysis": {{ "job_related_keywords": ["..."], "comment": "..." }},
+      "evaluation": {{ "applied_framework": "STAR|CASE|SYSTEMDESIGN|COMPETENCY(+C/L/M 선택)", "feedback": "..." }},
       "model_answer": "모범 답변 예시..."
-    }
+    }}
   ]
-}
+}}
 """
     + prompt_json_output_only
 )
@@ -87,37 +87,37 @@ For each Q/A below, produce a detailed dossier.
 {items}
 
 [Output JSON Schema]
-{
+{{
   "per_question_dossiers": [
-    {
+    {{
       "question_id": "1-1",
       "question": "...",
       "question_intent": "...",
       "model_answer": "...",
-      "user_answer_structure": {
+      "user_answer_structure": {{
         "framework": "STAR|CASE|SYSTEMDESIGN|COMPETENCY|OTHER",
         "elements_present": ["..."],
         "elements_missing": ["..."]
-      },
-      "scoring": {
+      }},
+      "scoring": {{
         "applied_framework": "STAR",
-        "scores_main": {"clarity": 0, "depth": 0, "evidence": 0, "relevance": 0},
-        "scores_ext": {"leadership": 0, "communication": 0, "metrics": 0},
+        "scores_main": {{"clarity": 0, "depth": 0, "evidence": 0, "relevance": 0}},
+        "scores_ext": {{"leadership": 0, "communication": 0, "metrics": 0}},
         "scoring_reason": "...",
         "evidence_quote": "A direct quote from the user's answer..."
-      },
-      "coaching": {
+      }},
+      "coaching": {{
         "strengths": ["..."],
         "improvements": ["..."],
         "next_steps": ["..."]
-      },
+      }},
       "additional_followups": ["Q1","Q2","Q3"],
-      "fact_checks": [{"claim":"...","verdict":"지원|불충분|반박","rationale":"..."}],
+      "fact_checks": [{{"claim":"...","verdict":"지원|불충분|반박","rationale":"..."}}],
       "ncs_alignment": ["..."],
       "risk_notes": ["..."]
-    }
+    }}
   ]
-}
+}}
 """
     + prompt_json_output_only
 )
@@ -136,7 +136,8 @@ Merge all provided data to produce a comprehensive final report with both micros
 [Rules]
 1.  **Microscopic View (Per-Question Analysis)**: For the `question_by_question_feedback` section, you MUST use the data from `per_question_dossiers` as the single source of truth. Do not re-evaluate or invent new feedback for individual questions. Your task is to faithfully summarize the provided evaluations.
 2.  **Macroscopic View (Overall Assessment)**: For `overall_summary`, `strengths_matrix`, `hiring_recommendation`, etc., you MUST synthesize insights from ALL provided inputs: the full `transcript_digest`, the individual evaluations in `per_question_dossiers`, and the original `full_contexts_json` (resume/JD). This is your opportunity to form a holistic judgment, assessing consistency between the candidate's resume and their answers.
-3.  **Evidence-Based Summary**: Your summaries and matrices MUST be based on the provided data. If a dossier indicates no answer, mention this as a 'missed opportunity'.
+3.  **Evidence-Based Summary**: Your summaries and matrices MUST be based on the provided data.
+4.  **Handle No Answer**: If a dossier's evaluation contains "평가 불가 (답변 없음)", you MUST list the corresponding question in the `missed_opportunities` section. Do NOT invent strengths or weaknesses for unanswered questions.
 
 [Context]
 - company: {company_name}
@@ -153,44 +154,44 @@ Merge all provided data to produce a comprehensive final report with both micros
 - per_question_dossiers: {per_question_dossiers} # For Microscopic View (턴별 분석 결과)
 
 [Output JSON Schema]
-{
+{{
   "overall_summary": "...",
   "interview_flow_rationale": "...",
-  "strengths_matrix": [{"theme":"...","evidence":["1-2","2-1"]}],
-  "weaknesses_matrix": [{"theme":"...","severity":"low|medium|high","evidence":["..."]}],
-  "score_aggregation": {
-    "main_avg": {},
-    "ext_avg": {},
+  "strengths_matrix": [{{"theme":"...","evidence":["1-2","2-1"]}}],
+  "weaknesses_matrix": [{{"theme":"...","severity":"low|medium|high","evidence":["..."]}}],
+  "score_aggregation": {{
+    "main_avg": {{}},
+    "ext_avg": {{}},
     "calibration": "..."
-  },
+  }},
   "missed_opportunities": ["..."],
   "potential_followups_global": ["..."],
-  "resume_feedback": {
+  "resume_feedback": {{
     "job_fit_assessment": "...",
     "strengths_and_opportunities": "...",
     "gaps_and_improvements": "..."
-  },
+  }},
   "hiring_recommendation": "strong_hire|hire|no_hire",
   "next_actions": ["..."],
   "question_by_question_feedback": [
-    {
+    {{
       "question_id": "1-1",
       "stage": "...",
       "objective": "...",
       "question": "...",
       "question_intent": "...",
-      "evaluation": {
+      "evaluation": {{
         "applied_framework": "STAR",
-        "scores_main": {},
-        "scores_ext": {},
+        "scores_main": {{}},
+        "scores_ext": {{}},
         "feedback": "...",
         "evidence_quote": "A direct quote from the user's answer..."
-      },
+      }},
       "model_answer": "...",
       "additional_followups": ["..."]
-    }
+    }}
   ]
-}
+}}
 """
     + prompt_json_output_only
 )

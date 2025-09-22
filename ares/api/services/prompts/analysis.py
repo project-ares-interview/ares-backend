@@ -5,6 +5,63 @@ Prompts for analyzing candidate's answers.
 from .base import SYSTEM_RULES, prompt_json_output_only
 
 # -----------------------------------------------------------------------------
+# JD 전처리기 (JD Cleaner)
+# -----------------------------------------------------------------------------
+prompt_jd_preprocessor = (
+    SYSTEM_RULES
+    + """
+You are a Job Description parsing expert. Your task is to extract only the core job-related sections from the provided text.
+
+[Extraction Sections]
+- "수행 업무" (Key Responsibilities)
+- "핵심 역량" (Core Competencies)
+- "자격 요건" (Qualifications)
+- "우대 사항" (Preferred Qualifications)
+- "기술 스택" (Tech Stack)
+
+[Rules]
+- Extract text ONLY from the sections listed above.
+- If a section does not exist, omit it.
+- Exclude all other information such as company introduction, benefits, hiring process, contact information, legal notices, etc.
+- Combine all extracted text into a single, clean block.
+
+[Job Description Text]
+{jd_text}
+
+[Output]
+(A single block of cleaned text containing only the core job requirements)
+"""
+)
+
+# -----------------------------------------------------------------------------
+# JD 핵심 역량 추출기 (JD Keyword Extractor)
+# -----------------------------------------------------------------------------
+prompt_jd_keyword_extractor = (
+    SYSTEM_RULES
+    + """
+You are a {persona}. Your task is to analyze the provided Job Description and the company's business summary to extract the 5 to 7 most critical core competency keywords.
+
+[Rules]
+1.  **Synthesize Information**: You MUST consider both the Job Description and the Business Summary. Extract keywords that are relevant to the job AND aligned with the company's strategic direction.
+2.  **Focus on Skills**: Prioritize technical skills, specific tools, and quantifiable qualifications.
+3.  **Exclude Soft Skills**: Do NOT extract soft skills like 'communication', 'passion', or 'responsibility'.
+4.  **Output Format**: Return ONLY a JSON object with a single key "keywords".
+
+[Job Description]
+{jd_text}
+
+[Company Business Summary (from RAG)]
+{business_summary}
+
+[Output JSON Schema]
+{{
+  "keywords": ["Keyword1", "Keyword2", "Keyword3", "Keyword4", "Keyword5"]
+}}
+"""
+    + prompt_json_output_only
+)
+
+# -----------------------------------------------------------------------------
 # 기계 1: 태거 (Identifier) - 프레임워크 식별
 # -----------------------------------------------------------------------------
 prompt_identifier = (
@@ -15,10 +72,10 @@ prompt_identifier = (
 확장요소(C/L/M)는 증거가 있을 때 접미사로 표기: 예) "STAR+C+M".
 "company_values_summary"는 회사 인재상/직무 관련 핵심 가치를 100자 이내로 요약합니다.
 [출력 스키마]
-{
+{{
   "frameworks": ["STAR", "CASE+M", "..."],
   "company_values_summary": "..."
-}
+}}
 """
     + prompt_json_output_only
 )
@@ -36,11 +93,11 @@ prompt_extractor = (
 [작업 목록(JSON 배열)]
 {component_list}
 [출력]
-{
-  "{analysis_key}": {
+{{
+  "{analysis_key}": {{
     "요소1": "요약1", "요소2": "요약2", "..."
-  }
-}
+  }}
+}}
 """
     + prompt_json_output_only
 )
@@ -53,9 +110,11 @@ prompt_scorer = (
     + """
 {persona_description}
 {evaluation_focus}
-당신은 위 관점을 가진 채점관입니다. 아래의 [평가 기준]을 고려하여 [{framework_name}] 프레임워크 규칙에 따라 점수를 매기세요.
+당신은 위 관점을 가진 채점관입니다. 아래의 [평가 기준]과 [지원자 원본 답변]을 바탕으로 [{framework_name}] 프레임워크 규칙에 따라 점수를 매기세요.
 [평가 기준: 직무 역량 ({role} 직무, NCS 기반)]
 {retrieved_ncs_details}
+[지원자 원본 답변]
+{user_answer}
 [채점 가이드라인]
 - 기본 요소(scores_main): 요소당 0~20점
 - 확장 요소(scores_ext: challenge, learning, metrics): 요소당 0~10점
@@ -66,12 +125,12 @@ SYSTEMDESIGN: requirements, trade_offs, architecture, risks
 CASE: problem, structure, analysis, recommendation
 COMPETENCY: competency, behavior, impact
 [출력]
-{
+{{
   "framework": "STAR|SYSTEMDESIGN|CASE|COMPETENCY",
-  "scores_main": {"요소명": 0},
-  "scores_ext": {"challenge": 0, "learning": 0, "metrics": 0},
+  "scores_main": {{"요소명": 0}},
+  "scores_ext": {{"challenge": 0, "learning": 0, "metrics": 0}},
   "scoring_reason": "300~600자 요약"
-}
+}}
 """
     + prompt_json_output_only
 )
@@ -92,18 +151,18 @@ scores_ext: {scores_ext}
 scoring_reason: {scoring_reason}
 role: {role}
 [출력]
-{
+{{
   "framework": "STAR|SYSTEMDESIGN|CASE|COMPETENCY",
   "calibration": [
-    {"element": "요소명", "given": 0, "max": 20, "gap": 20,
-      "why_not_max": "...", "how_to_improve": ["...", "..."]}
+    {{"element": "요소명", "given": 0, "max": 20, "gap": 20,
+      "why_not_max": "...", "how_to_improve": ["...", "..."]}}
   ],
   "ext_calibration": [
-    {"element": "challenge|learning|metrics", "given": 0, "max": 10, "gap": 10,
-      "why_not_max": "...", "how_to_improve": ["..."]}
+    {{"element": "challenge|learning|metrics", "given": 0, "max": 10, "gap": 10,
+      "why_not_max": "...", "how_to_improve": ["..."]}}
   ],
   "overall_tip": "다음 답변에서 점수를 올리기 위한 우선순위 2~3가지"
-}
+}}
 """
     + prompt_json_output_only
 )
@@ -127,11 +186,11 @@ prompt_coach = (
 - 각 항목에 반드시 원문 특정 구절 '직접 인용' 포함
 - 총평 3~5문장
 [출력]
-{
+{{
   "strengths": ["...인용...' ...설명", "..."],
   "improvements": ["...인용...' ...개선 제안", "..."],
   "feedback": "총평(3~5문장). {company_name}의 다음 단계 진입 조언 포함"
-}
+}}
 """
     + prompt_json_output_only
 )
@@ -152,14 +211,14 @@ prompt_bias_checker = (
 [입력]
 {any_text}
 [출력]
-{
+{{
   "flagged": true,
   "issues": [
-    {"span": "...", "category": "편향|공격성|차별적 가정|민감정보 오남용|과도한 확신|기타",
-      "reason": "...", "suggested_fix": "...", "severity": "low|medium|high"}
+    {{"span": "...", "category": "편향|공격성|차별적 가정|민감정보 오남용|과도한 확신|기타",
+      "reason": "...", "suggested_fix": "...", "severity": "low|medium|high"}}
   ],
   "sanitized_text": "문제를 수정해 공정/중립적으로 재작성한 전체 텍스트(가능하면 원문과 유사 길이 유지)"
-}
+}}
 규칙:
 - 문제가 전혀 없으면 flagged=false, issues=[]로 반환하고 sanitized_text에는 원문을 그대로 넣습니다.
 """
@@ -174,19 +233,24 @@ prompt_model_answer = (
     + """
 {persona_description}
 지원자의 아쉬운 점을 보완하여 최고 수준 모범 답안을 1개 생성하세요.
+[지원자 원본 답변]
+{user_answer}
+[지원자 이력서]
+{resume_context}
 [참고(NCS)]
 {retrieved_ncs_details}
 [규칙]
+- **[매우 중요] [지원자 이력서] 내용을 바탕으로, 질문에 가장 적합하고 이상적인 경험을 선택해야 합니다. 반드시 이력서에 있는 구체적인 프로젝트명, 회사명, 성과(숫자) 등을 직접적으로 인용하여 답변을 재구성하세요.**
 - "model_answer": 400~800자
 - 개선점 마커: "[추가]", "[정정]" 총 5개 이하, 동일 문장 중복 마커 금지
 - "model_answer_framework": STAR|CASE|SYSTEMDESIGN|COMPETENCY 중 선택
 - "selection_reason": 선택 프레임워크의 2~3개 요소 매핑 근거 간결 제시
 [출력]
-{
+{{
   "model_answer": "...",
   "model_answer_framework": "...",
   "selection_reason": "..."
-}
+}}
 """
     + prompt_json_output_only
 )
@@ -215,10 +279,11 @@ prompt_rag_answer_analysis = (
 - 핵심 주장 1~2개만 검증.
 - 근거 표기: "[자료 1 기반]" 또는 "[자료 2 웹 검색 기반]".
 - '평가 기준'에 명시된 Rubric과 기대 답변(Expected Points)을 바탕으로 답변의 강점과 약점을 분석하세요.
-- 'transition_phrase'에는 방금 들은 답변을 가볍게 인정하고 다음 질문으로 자연스럽게 넘어가기 위한 1-2 문장의 연결 구문을 생성하세요. **매번 다른 표현을 사용하고, 답변의 핵심 키워드를 자연스럽게 언급하거나, 때로는 간단한 감탄사나 동의로 시작하는 등 다양성을 확보해야 합니다.**
-  - 예시 1(인정): "네, [답변 키워드]에 대한 경험 잘 들었습니다. 그럼 다음으로..."
-  - 예시 2(확인): "아, [답변 키워드]라는 말씀이시군요. 알겠습니다. 그러면..."
-  - 예시 3(간단한 전환): "좋습니다. 다음 질문으로 넘어가겠습니다."
+- 'transition_phrase'에는 방금 들은 답변을 인정하고 다음 질문으로 넘어가는 **매우 자연스럽고 다양한** 연결 구문을 생성하세요. **절대 매번 똑같은 패턴을 사용해서는 안 됩니다.**
+  - **규칙 1 (다양성):** 실제 사람이 대화하듯, 때로는 간단하게("네, 알겠습니다."), 때로는 답변 내용을 짧게 언급하며("말씀해주신 [핵심 내용] 경험이 인상적이네요."), 때로는 감탄사로("흥미롭군요.") 시작하는 등, 다양한 표현을 사용해야 합니다.
+  - **규칙 2 (간결성):** 대부분의 경우, 한 문장으로 간결하게 표현하세요.
+  - **규칙 3 (자기소개):** 자기소개 답변 후에는 "네, 자기소개 잘 들었습니다. 그럼 이제 본격적인 질문을 시작하겠습니다." 와 같이 명확한 전환 문구를 사용하세요.
+  - **나쁜 예시 (반복 패턴):** "네, ...에 대한 설명 잘 들었습니다. 그럼 다음 질문으로 넘어가 보겠습니다." 라는 구조를 반복해서 사용하지 마세요.
 
 [출력]
 {{

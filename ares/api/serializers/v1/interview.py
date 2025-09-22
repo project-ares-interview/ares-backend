@@ -142,9 +142,14 @@ class InterviewAnswerIn(serializers.Serializer):
             raise serializers.ValidationError("답변은 최소 5자 이상 입력하세요.")
         return v
 
+class NextQuestionSerializer(serializers.Serializer):
+    turn_label = serializers.CharField(allow_null=True)
+    question = serializers.CharField(allow_null=True)
+
 class InterviewAnswerOut(serializers.Serializer):
-    analysis = serializers.DictField()
-    followups_buffered = serializers.ListField(child=serializers.CharField())
+    analysis = serializers.DictField(help_text="The detailed analysis of the candidate's answer.")
+    transition_phrase = serializers.CharField(allow_null=True, help_text="A smooth transition phrase to the next question.")
+    next_question = NextQuestionSerializer(allow_null=True, help_text="The next question to be asked.")
     message = serializers.CharField()
     turn_label = serializers.CharField(help_text="The label of the answer that was just submitted, e.g., '1-1'.")
 

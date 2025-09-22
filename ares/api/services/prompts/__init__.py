@@ -21,7 +21,10 @@ from .analysis import (
     prompt_bias_checker,
     prompt_model_answer,
     prompt_rag_answer_analysis,
+    prompt_jd_keyword_extractor,
+    prompt_jd_preprocessor,
 )
+from .classification import prompt_intent_classifier, prompt_jd_classifier
 from .design import (
     prompt_interview_designer,
     prompt_interview_designer_v2,
@@ -73,6 +76,11 @@ __all__ = [
     "prompt_bias_checker",
     "prompt_model_answer",
     "prompt_rag_answer_analysis",
+    "prompt_jd_keyword_extractor",
+    "prompt_jd_preprocessor",
+    # from classification
+    "prompt_intent_classifier",
+    "prompt_jd_classifier",
     # from design
     "prompt_interview_designer",
     "prompt_interview_designer_v2",

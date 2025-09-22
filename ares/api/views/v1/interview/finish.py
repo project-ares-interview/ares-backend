@@ -74,18 +74,47 @@ Marks an interview session as finished and triggers the generation of the final 
         transcript = []
         structured_scores = []
         
-        for t in turns:
-            role_str = "interviewer" if t.role == InterviewTurn.Role.INTERVIEWER else "candidate"
-            text = t.question if t.role == InterviewTurn.Role.INTERVIEWER else t.answer
+        interviewer_turns = {turn.turn_label: turn for turn in turns if turn.role == InterviewTurn.Role.INTERVIEWER}
+        candidate_answers = {turn.turn_label: turn for turn in turns if turn.role == InterviewTurn.Role.CANDIDATE}
+
+        for label, interviewer_turn in interviewer_turns.items():
+            candidate_turn = candidate_answers.get(label)
             
             transcript.append({
-                "role": role_str,
-                "text": text,
-                "id": t.turn_label,
+                "role": "interviewer",
+                "text": interviewer_turn.question,
+                "id": label,
             })
-            
-            if t.role == InterviewTurn.Role.CANDIDATE and t.scores:
-                structured_scores.append(t.scores)
+
+            if candidate_turn:
+                transcript.append({
+                    "role": "candidate",
+                    "text": candidate_turn.answer,
+                    "id": label,
+                })
+                if candidate_turn.scores:
+                    structured_scores.append(candidate_turn.scores)
+                else:
+                    # 답변은 했지만 분석 결과가 없는 경우 (예: 아이스브레이킹)
+                    structured_scores.append({
+                        "question_id": label,
+                        "question": interviewer_turn.question,
+                        "answer": candidate_turn.answer,
+                        "scoring": {"scoring_reason": "평가 제외 항목입니다."}
+                    })
+            else:
+                # 후보자가 해당 질문에 답변하지 않은 경우
+                transcript.append({
+                    "role": "candidate",
+                    "text": "[답변 없음]",
+                    "id": label,
+                })
+                structured_scores.append({
+                    "question_id": label,
+                    "question": interviewer_turn.question,
+                    "answer": "[답변 없음]",
+                    "scoring": {"scoring_reason": "평가 불가 (답변 없음)"}
+                })
 
         # --- 이력서 분석 수행 ---
         resume_feedback = {}

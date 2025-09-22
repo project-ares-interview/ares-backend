@@ -15,7 +15,7 @@ prompt_rag_follow_up_question = (
 직전 답변 결핍 힌트: {deficit_hint}
 원 질문의 목표 달성을 위해 논리를 더 파고들거나 부족한 부분을 보완하는 핵심 꼬리 질문 1개를 생성하세요(한 문장, ≤200자).
 [출력]
-{ "follow_up_question": "..." }
+{{ "follow_up_question": "..." }}
 """
     + prompt_json_output_only
 )
@@ -42,13 +42,15 @@ prompt_followup_v2 = (
 - kpi: {kpi}
 
 [출력 스키마]
-{
+{{
   "followups": ["꼬리질문1","꼬리질문2"],
   "rationale": "무엇을 검증하기 위한 질문인지에 대한 근거(200자 이내)",
   "fallback_used": false,
   "keywords": ["답변의 핵심 키워드1","키워드2"]
-}
+}}
 규칙:
+- **[근거 요구 특별 규칙]** 만약 지원자의 답변이 구체적인 경험이나 근거 없이 자신감, 포부, 의견만을 주장하는 형태라면(예: "제가 최고입니다", "잘 할 수 있습니다", "열심히 하겠습니다"), 다른 어떤 질문보다 주장에 대한 구체적인 근거, 이유, 또는 관련 경험을 요구하는 질문을 최우선으로 생성해야 합니다.
+- **[자기소개 특별 규칙]** `question_type`이 "self_intro"인 경우, `latest_answer`에서 언급된 구체적인 경험(예: 특정 프로젝트, 근무 기간, 기술)을 직접적으로 인용하여 더 자세한 설명을 요구하는 질문을 생성하세요. (예: "네, 자기소개 잘 들었습니다. ...에서 3년간 근무하셨다고 하셨는데, 그 경험에 대해 더 자세히 말씀해주시겠어요?")
 - followups는 1~2개로 제한합니다.
 - evaluation_criteria와 analysis_summary를 최우선으로 활용하여 질문을 생성하세요.
 - latest_answer가 빈약하여 의미 있는 질문 생성이 어려우면 fallback_used=true로 표기하고, 안전한 일반 꼬리질문을 생성하세요.
@@ -76,7 +78,7 @@ prompt_icebreaker_question = (
     - 민감 정보(가족, 건강, 정치/종교 등)는 절대 묻지 않습니다.
 
 **출력 형식:**
-{ "question": "[아이스브레이킹 질문]" }
+{{ "question": "[아이스브레이킹 질문]" }}
 """
     + prompt_json_output_only
 )
@@ -89,7 +91,7 @@ prompt_self_introduction_question = (
 - 1문장, 60자 이내, 공손하고 간결
 - 예시 표현(예: "1분 자기소개")을 포함해도 되지만 강제하지는 말 것
 [출력]
-{ "question": "..." }
+{{ "question": "..." }}
 """
     + prompt_json_output_only
 )
@@ -109,7 +111,7 @@ prompt_motivation_question = (
 - 예시: "우리 회사에 지원하신 동기는 무엇인가요?", "{company_name}의 {job_title} 직무에 관심을 갖게 된 계기가 있으신가요?"
 
 [출력]
-{ "question": "..." }
+{{ "question": "..." }}
 """
     + prompt_json_output_only
 )
@@ -145,7 +147,7 @@ prompt_soft_followup = (
 {deficit_hint}
 
 [출력]
-{ "follow_up_question": "..." }
+{{ "follow_up_question": "..." }}
 """
     + prompt_json_output_only
 )

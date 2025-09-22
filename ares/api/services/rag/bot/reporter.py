@@ -8,6 +8,7 @@ Final Report generator for the RAG Interview Bot.
 
 import json
 from typing import Any, Dict, List, Optional
+import numpy as np
 
 from ares.api.utils.ai_utils import safe_extract_json
 from ares.api.services.prompts import (
@@ -31,14 +32,42 @@ class ReportGenerator:
     ) -> Dict[str, Any]:
         """
         최종 리포트 생성 파이프라인:
-        - 면접 중 생성된 structured_scores를 '미시적' 데이터로,
+        - 상세 분석된 structured_scores를 '미시적' 데이터로 가공하고,
         - 전체 transcript와 full_contexts를 '거시적' 데이터로 활용하여 최종 리포트를 종합합니다.
         """
         try:
             # ==================================================================
-            # 1단계: '미시적' 데이터 준비 (structured_scores 활용)
+            # 1단계: '미시적' 데이터 가공 (structured_scores -> per_question_dossiers)
             # ==================================================================
-            per_question_dossiers = structured_scores
+            per_question_dossiers = []
+            for score_data in structured_scores:
+                # 상세 분석 결과에서 필요한 정보 추출
+                question_id = score_data.get("question_id", "N/A")
+                question_text = score_data.get("question", "N/A")
+                question_intent = score_data.get("question_intent", "N/A")
+                
+                # evaluation 객체 재구성
+                evaluation = {
+                    "applied_framework": score_data.get("scoring", {}).get("framework", "N/A"),
+                    "scores_main": score_data.get("scoring", {}).get("scores_main", {}),
+                    "scores_ext": score_data.get("scoring", {}).get("scores_ext", {}),
+                    "feedback": score_data.get("feedback", "N/A"),
+                    "evidence_quote": score_data.get("answer", "")[:100] + "..." # 답변 일부 인용
+                }
+                
+                # model_answer 객체 재구성
+                model_answer = score_data.get("model_answer", {}).get("model_answer", "N/A")
+
+                # 최종 dossier 객체 생성
+                dossier = {
+                    "question_id": question_id,
+                    "question": question_text,
+                    "question_intent": question_intent,
+                    "evaluation": evaluation,
+                    "model_answer": model_answer,
+                    "coaching": score_data.get("coaching", {}),
+                }
+                per_question_dossiers.append(dossier)
 
             # ==================================================================
             # 2단계: 최종 리포트 종합 ('거시적' 관점 추가)
@@ -63,7 +92,7 @@ class ReportGenerator:
                 .replace("{resume_feedback_json}", _truncate(resume_json, 3000))
                 .replace("{transcript_digest}", _truncate(transcript_digest, 8000))
                 .replace("{per_question_dossiers}", _truncate(dossiers_json, 12000))
-                .replace("{full_contexts_json}", _truncate(contexts_json, 8000)) # 원문 컨텍스트 추가
+                .replace("{full_contexts_json}", _truncate(contexts_json, 8000))
             )
 
             raw_final_str = self.bot._chat_raw_json_str(prompt_overview, temperature=0.3, max_tokens=4000)

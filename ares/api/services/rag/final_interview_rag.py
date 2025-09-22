@@ -20,6 +20,10 @@ from ares.api.services.prompts import (
     prompt_rag_answer_analysis,
     make_icebreak_question_llm_or_template,
     ICEBREAK_TEMPLATES_KO,
+    prompt_scorer,
+    prompt_coach,
+    prompt_model_answer,
+    prompt_intent_classifier,
 )
 from .bot.base import RAGBotBase
 from .bot.planner import InterviewPlanner
@@ -28,6 +32,7 @@ from .bot.reporter import ReportGenerator
 from .bot.utils import (
     normalize_interview_plan,
     extract_first_main_question,
+    _truncate,
 )
 
 class RAGInterviewBot:
@@ -161,18 +166,31 @@ class RAGInterviewBot:
         return {"id": qid or "main-1-1", "question": full_question}
 
     # -----------------------------
+    # Intent Classification
+    # -----------------------------
+    def classify_user_intent(self, question: str, answer: str) -> str:
+        """Classifies the user's intent."""
+        prompt = prompt_intent_classifier.format(question=question, answer=answer)
+        result = self.base._chat_json(prompt, temperature=0.0)
+        return result.get("intent", "ANSWER")
+
+    # -----------------------------
     # Analyze (분석/평가/꼬리질문)
     # -----------------------------
     def analyze_answer_with_rag(self, question: str, answer: str, stage: str, question_item: Optional[Dict] = None) -> dict:
         """
-        Analyzes the candidate's answer using RAG.
+        Analyzes the candidate's answer using a multi-step RAG pipeline.
         """
-        print(f"[INFO] 답변 분석 시작: 질문: {question}\n답변: {answer}")
+        print(f"[INFO] 답변 분석 파이프라인 시작: 질문: {question[:50]}...\n답변: {answer[:50]}...")
         if not self.base.rag_ready:
             print("[WARNING] analyze_answer: RAG system is not ready.")
             return {"error": "RAG system is not ready."}
 
-        # --- Rubric 및 평가 기준 주입 ---
+        # --- 컨텍스트 준비 ---
+        persona_desc = self.base.persona.get("persona_description", "")
+        eval_focus = self.base.persona.get("evaluation_focus", "")
+        ncs_details = json.dumps(self.base.ncs_context, ensure_ascii=False)
+        
         evaluation_criteria = ""
         if question_item:
             rubric = question_item.get("rubric")
@@ -183,29 +201,69 @@ class RAGInterviewBot:
             if expected:
                 criteria_text += f"- Expected Points: {json.dumps(expected, ensure_ascii=False)}\n"
             evaluation_criteria = criteria_text
-        # --- 끝 ---
 
-        # 프롬프트 플레이스홀더에 실제 값 주입
-        # TODO: internal_check, web_result는 현재 구현에서 비어있으므로, 향후 RAG 기능 확장 시 채워야 함
-        formatted_prompt = prompt_rag_answer_analysis.format(
-            persona_description=self.base.persona.get("persona_description", ""),
-            evaluation_focus=self.base.persona.get("evaluation_focus", ""),
+        # --- 파이프라인 1: 기본 분석 (피드백, 사실 확인) ---
+        print("  [1/4] 기본 분석 수행...")
+        analysis_prompt = prompt_rag_answer_analysis.format(
+            persona_description=persona_desc,
+            evaluation_focus=eval_focus,
             question=question,
             answer=answer,
-            evaluation_criteria=evaluation_criteria, # 평가 기준 주입
+            evaluation_criteria=evaluation_criteria,
             internal_check="(내부 자료 검증 정보 없음)",
             web_result="(웹 검색 결과 없음)"
         )
+        base_analysis = self.base._chat_json(prompt=analysis_prompt, temperature=0.2)
 
-        print(f"[INFO] RAG 기반 답변 분석 프롬프트 생성...")
-        
-        response_json = self.base._chat_json(
-            prompt=formatted_prompt,
-            temperature=0.2,
+        # --- 파이프라인 2: 점수 채점 ---
+        print("  [2/4] 점수 채점 수행...")
+        framework = question_item.get("question_type", "COMPETENCY").upper() if question_item else "COMPETENCY"
+        scorer_prompt = prompt_scorer.format(
+            persona_description=persona_desc,
+            evaluation_focus=eval_focus,
+            framework_name=framework,
+            role=self.base.job_title,
+            retrieved_ncs_details=ncs_details,
+            # Hallucination 방지를 위해 원본 답변 전달
+            user_answer=answer 
         )
+        scoring_result = self.base._chat_json(prompt=scorer_prompt, temperature=0.1)
+
+        # --- 파이프라인 3: 코칭 (강점/개선점) ---
+        print("  [3/4] 코칭 생성 수행...")
+        coach_prompt = prompt_coach.format(
+            persona_description=persona_desc,
+            scoring_reason=scoring_result.get("scoring_reason", ""),
+            user_answer=answer,
+            retrieved_ncs_details=ncs_details,
+            company_name=self.base.company_name
+        )
+        coaching_result = self.base._chat_json(prompt=coach_prompt, temperature=0.3)
+
+        # --- 파이프라인 4: 모범 답안 생성 ---
+        print("  [4/4] 모범 답안 생성 수행...")
+        model_answer_prompt = prompt_model_answer.format(
+            persona_description=persona_desc,
+            retrieved_ncs_details=ncs_details,
+            user_answer=answer,
+            resume_context=self.base.resume_context
+        )
+        model_answer_result = self.base._chat_json(prompt=model_answer_prompt, temperature=0.3)
+
+        # --- 최종 결과 취합 ---
+        final_result = {
+            "question_id": question_item.get("id") if question_item else "unknown",
+            "question": question,
+            "question_intent": question_item.get("objective") if question_item else "N/A",
+            "answer": answer,
+            **base_analysis,
+            "scoring": scoring_result,
+            "coaching": coaching_result,
+            "model_answer": model_answer_result,
+        }
         
-        print(f"[INFO] LLM 응답 수신: 분석 결과: {response_json}")
-        return response_json
+        print(f"[INFO] 답변 분석 파이프라인 완료.")
+        return final_result
 
     def generate_follow_up_question(
         self,
