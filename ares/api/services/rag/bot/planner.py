@@ -68,9 +68,9 @@ class InterviewPlanner:
                 .replace("{difficulty_instruction}", difficulty_instruction)
                 .replace("{business_info}", business_info)
                 .replace("{ideal_candidate_profile}", ideal_candidate_profile)
-                .replace("{jd_context}", _truncate(self.bot.jd_context, 1200))
-                .replace("{resume_context}", _truncate(self.bot.resume_context, 1200))
-                .replace("{research_context}", _truncate(self.bot.research_context, 1200))
+                .replace("{jd_context}", _truncate(self.bot.jd_context, 8000))
+                .replace("{resume_context}", _truncate(self.bot.resume_context, 8000))
+                .replace("{research_context}", _truncate(self.bot.research_context, 8000))
                 .replace("{ncs_info}", _truncate(ncs_info, 400))
             )
 

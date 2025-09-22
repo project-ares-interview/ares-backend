@@ -98,17 +98,32 @@ def analysis_worker(sid, audio_buffer, full_transcript, user_gender, total_speak
 
         turns = session.turns.order_by("turn_index").all()
         transcript = []
-        structured_scores = []
+        question_text_map = {}
+
+        # Pass 1: Build transcript and map questions
         for t in turns:
-            role_str = "interviewer" if t.role == InterviewTurn.Role.INTERVIEWER else "candidate"
-            text = t.question if t.role == InterviewTurn.Role.INTERVIEWER else (t.answer or "")
+            is_interviewer = t.role == InterviewTurn.Role.INTERVIEWER
+            role_str = "interviewer" if is_interviewer else "candidate"
+            text = t.question if is_interviewer else (t.answer or "")
+            
             transcript.append({
                 "role": role_str,
                 "text": text,
                 "id": t.turn_label,
             })
+            
+            if is_interviewer and t.question:
+                question_text_map[t.turn_label] = t.question
+
+        # Pass 2: Build augmented structured_scores
+        structured_scores = []
+        for t in turns:
             if t.role == InterviewTurn.Role.CANDIDATE and t.scores:
-                structured_scores.append(t.scores)
+                score_item = t.scores.copy()
+                score_item['question'] = question_text_map.get(t.turn_label, "[Question not found]")
+                score_item['answer'] = t.answer or ""
+                score_item['question_id'] = t.turn_label
+                structured_scores.append(score_item)
 
         print(f"[{sid}] 텍스트 분석: 대화 기록 조회 완료. 최종 리포트 생성 시작 (LLM 호출)...")
 

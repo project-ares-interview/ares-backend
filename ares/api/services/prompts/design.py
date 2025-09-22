@@ -60,6 +60,10 @@ prompt_interview_designer_v2 = (
 - **expected_points**: 해당 질문을 통해 확인하고자 하는 핵심 역량 키워드 또는 기대 답변 포인트를 3~5개 나열합니다.
 - **rubric**: "매우우수/우수/보통/약간미흡/미흡" 5단계의 평가 기준을 구체적인 서술형으로 정의하고, 각 등급에 50/40/30/20/10점의 점수를 부여합니다.
 
+A good interview plan contains a balanced mix of questions:
+- **Resume-Specific Questions:** At least half of the questions in the 'main' phase should be specific, probing into details, projects, or quantified achievements mentioned in the candidate's resume. This is crucial to verify their experience. For example, if the resume mentions 'led a project that improved efficiency by 20%', ask 'Can you walk me through the project where you improved efficiency by 20%? What was your specific role?'.
+- **Competency Questions:** The other questions can be broader behavioral or situational questions to assess core competencies relevant to the job description that are not explicitly covered in the resume.
+
 [[최신 사업 요약]]  
 {business_info}
 

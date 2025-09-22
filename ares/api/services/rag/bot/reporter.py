@@ -52,7 +52,7 @@ class ReportGenerator:
                     "scores_main": score_data.get("scoring", {}).get("scores_main", {}),
                     "scores_ext": score_data.get("scoring", {}).get("scores_ext", {}),
                     "feedback": score_data.get("feedback", "N/A"),
-                    "evidence_quote": score_data.get("answer", "")[:100] + "..." # 답변 일부 인용
+                    "evidence_quote": score_data.get("answer", "") # 답변 전체 인용으로 변경
                 }
                 
                 # model_answer 객체 재구성
@@ -91,14 +91,18 @@ class ReportGenerator:
                 .replace("{interview_plan_json}", _truncate(plan_json, 4000))
                 .replace("{resume_feedback_json}", _truncate(resume_json, 3000))
                 .replace("{transcript_digest}", _truncate(transcript_digest, 8000))
-                .replace("{per_question_dossiers}", _truncate(dossiers_json, 12000))
+                .replace("{per_question_dossiers}", _truncate(dossiers_json, 32000)) # Increase limit to avoid breaking JSON
                 .replace("{full_contexts_json}", _truncate(contexts_json, 8000))
             )
 
             raw_final_str = self.bot._chat_raw_json_str(prompt_overview, temperature=0.3, max_tokens=4000)
             final_result = safe_extract_json(raw_final_str)
-            
+
             if final_result:
+                # [수정] AI가 생성한 피드백 리스트를 코드 기반의 전체 리스트로 완전히 교체합니다.
+                # 이 방식은 AI가 토큰 제한이나 다른 이유로 리스트를 누락/요약하는 것을 원천적으로 방지하여,
+                # 항상 모든 질문에 대한 피드백이 완전하게 포함되도록 보장합니다.
+                final_result['question_by_question_feedback'] = per_question_dossiers
                 return final_result
             else: # JSON 파싱 실패 시 복구 시도
                 _debug_print_raw_json("FINAL_REPORT_FIRST_PASS", raw_final_str or "")
