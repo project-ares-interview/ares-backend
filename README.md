@@ -100,7 +100,7 @@ uv run python manage.py migrate
 `dotenvx`를 사용하여 `.env.development` 파일의 환경 변수를 주입하고 서버를 실행합니다.
 
 ```bash
-dotenvx run -f .env.development -- uv run python manage.py runserver "0.0.0.0:8000"
+dotenvx run -f .env.development -- uv run daphne -p 8000 ares.asgi:application
 ```
 
 ## 주요 API 엔드포인트
