@@ -34,6 +34,7 @@ def analysis_worker(sid, audio_buffer, full_transcript, user_gender, total_speak
     """백그라운드에서 최종 음성/영상/텍스트 분석을 실행하고 결과를 그룹으로 전송"""
     # Django 설정 로딩이 끝난 후, 함수 내에서 import
     from ares.api.models import InterviewSession, InterviewTurn
+    from ares.api.services import resume_service
     from ares.api.services.rag.final_interview_rag import RAGInterviewBot
 
     group_name = f"session_{sid}"
@@ -65,41 +66,83 @@ def analysis_worker(sid, audio_buffer, full_transcript, user_gender, total_speak
     # 3. Final Text Analysis (RAG-based Report)
     try:
         print(f"[{sid}] 텍스트 분석: DB에서 세션 조회 시작...")
-        session = InterviewSession.objects.get(id=sid)
+        # 로그인 세션이 없으므로 sid로 직접 조회 (프로필 포함)
+        session = InterviewSession.objects.select_related('user__profile').get(id=sid)
         print(f"[{sid}] 텍스트 분석: 세션 조회 완료. RAG 컨텍스트 확인 시작...")
         rag_context = session.rag_context or {}
         
         if not rag_context.get("company_name") or not rag_context.get("job_title"):
             raise ValueError("RAG 컨텍스트에 회사/직무 정보가 없습니다.")
         
+        # --- 컨텍스트 로드 (Profile 우선) ---
+        jd_context = ""
+        resume_context = ""
+        research_context = ""
+        if hasattr(session.user, 'profile'):
+            jd_context = getattr(session.user.profile, 'jd_context', '')
+            resume_context = getattr(session.user.profile, 'resume_context', '')
+            research_context = getattr(session.user.profile, 'research_context', '')
+
         print(f"[{sid}] 텍스트 분석: RAG 봇 인스턴스화 시작...")
         rag_bot = RAGInterviewBot(
-            company_name=rag_context.get("company_name"),
-            job_title=rag_context.get("job_title"),
-            container_name=rag_context.get("container_name"),
-            index_name=rag_context.get("index_name"),
+            company_name=rag_context.get("company_name", ""),
+            job_title=rag_context.get("job_title", ""),
+            container_name=rag_context.get("container_name", ""),
+            index_name=rag_context.get("index_name", ""),
             interviewer_mode=session.interviewer_mode,
-            resume_context=session.resume_context,
-            ncs_context=session.context,
-            jd_context=session.jd_context,
+            resume_context=resume_context or (session.resume_context or ""),
+            ncs_context=session.context or {},
+            jd_context=jd_context or (session.jd_context or ""),
         )
         print(f"[{sid}] 텍스트 분석: RAG 봇 인스턴스화 완료. 대화 기록 조회 시작...")
 
         turns = session.turns.order_by("turn_index").all()
         transcript = []
+        structured_scores = []
         for t in turns:
+            role_str = "interviewer" if t.role == InterviewTurn.Role.INTERVIEWER else "candidate"
+            text = t.question if t.role == InterviewTurn.Role.INTERVIEWER else (t.answer or "")
             transcript.append({
-                "question": t.question,
-                "answer": t.answer or "",
-                "analysis": t.scores or {},
+                "role": role_str,
+                "text": text,
+                "id": t.turn_label,
             })
+            if t.role == InterviewTurn.Role.CANDIDATE and t.scores:
+                structured_scores.append(t.scores)
+
         print(f"[{sid}] 텍스트 분석: 대화 기록 조회 완료. 최종 리포트 생성 시작 (LLM 호출)...")
 
-        # 이력서 분석은 최종 리포트 생성 시 함께 처리됨
-        final_report = rag_bot.generate_detailed_final_report(
+        # --- 이력서 분석 수행 (뷰 로직과 동일) ---
+        resume_feedback = {}
+        try:
+            company_meta = {
+                "company_name": rag_context.get("company_name", ""),
+                "job_title": rag_context.get("job_title", ""),
+            }
+            full_resume_analysis = resume_service.analyze_all(
+                jd_text=jd_context,
+                resume_text=resume_context,
+                research_text=research_context,
+                company_meta=company_meta,
+            )
+            resume_feedback = full_resume_analysis.get("resume_feedback", {})
+        except Exception as e:
+            print(f"[{sid}] 이력서 분석 실패: {e}")
+            resume_feedback = {"error": f"Resume analysis failed: {e}"}
+
+        interview_plan = (rag_context.get("interview_plans", {}) or {}).get("raw_v2_plan", {})
+        full_contexts = {
+            "jd_context": jd_context,
+            "resume_context": resume_context,
+            "research_context": research_context,
+        }
+
+        final_report = rag_bot.build_final_report(
             transcript=transcript,
-            interview_plan=rag_context.get("interview_plan", {}),
-            resume_feedback_analysis={} # 이력서 분석은 리포트 생성 시 내부적으로 처리
+            structured_scores=structured_scores,
+            interview_plan=interview_plan,
+            resume_feedback=resume_feedback,
+            full_contexts=full_contexts,
         )
         print(f"[{sid}] 텍스트 분석: 최종 리포트 생성 완료.")
 
