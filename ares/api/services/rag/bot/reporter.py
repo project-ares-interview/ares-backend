@@ -38,7 +38,7 @@ class ReportGenerator:
             # 1단계: 데이터 가공, 그룹핑 및 주제별 요약 생성
             themed_feedback, validation_errors = self._process_group_and_summarize(structured_scores)
             if validation_errors:
-                log.warning(f"[Report Validation Failed] Session({self.bot.session_id}): {validation_errors}")
+                log.warning(f"[Report Validation Failed] Session: {validation_errors}")
 
             # 2단계: Python 기반으로 구조적 데이터 생성
             all_dossiers = [item for theme in themed_feedback for item in theme.get("details", [])]
@@ -69,7 +69,7 @@ class ReportGenerator:
             validation_errors = self._validate_final_report(final_report)
             if validation_errors:
                 final_report["validation_errors"] = validation_errors
-                log.warning(f"[Report Validation Failed] Session({self.bot.session_id}): {validation_errors}")
+                log.warning(f"[Report Validation Failed] Session: {validation_errors}")
 
             return final_report
 
