@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 
 from ares.api.utils.ai_utils import safe_extract_json
+from ares.api.utils.common_utils import get_logger
 from ares.api.services.prompts import (
     prompt_detailed_overview,
     prompt_rag_json_correction,
@@ -18,6 +19,8 @@ from ares.api.services.prompts import (
 )
 from .base import RAGBotBase
 from .utils import _truncate, _debug_print_raw_json
+
+log = get_logger(__name__)
 
 class ReportGenerator:
     def __init__(self, bot: RAGBotBase):
