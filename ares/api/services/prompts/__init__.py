@@ -34,6 +34,7 @@ from .report import (
     prompt_rag_final_report,
     prompt_detailed_section,
     prompt_detailed_overview,
+    prompt_thematic_summary,
 )
 from .question_generation import (
     prompt_rag_follow_up_question,
@@ -89,6 +90,7 @@ __all__ = [
     "prompt_rag_final_report",
     "prompt_detailed_section",
     "prompt_detailed_overview",
+    "prompt_thematic_summary",
     # from question_generation
     "prompt_rag_follow_up_question",
     "prompt_followup_v2",

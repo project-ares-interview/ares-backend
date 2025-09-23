@@ -148,7 +148,7 @@ Merge all provided data to produce a comprehensive final report with both micros
 
 [Inputs]
 - interview_plan: {interview_plan_json}
-- resume_feedback_analysis: {resume_feedback_json}
+- full_resume_analysis_json: {resume_feedback_json}
 - full_contexts_json: {full_contexts_json}         # For Macroscopic View (Resume/JD 원문)
 - transcript_digest: {transcript_digest}         # For Macroscopic View (전체 대화록)
 - per_question_dossiers: {per_question_dossiers} # For Microscopic View (턴별 분석 결과)
@@ -157,22 +157,19 @@ Merge all provided data to produce a comprehensive final report with both micros
 {{
   "overall_summary": "...",
   "interview_flow_rationale": "...",
-  "strengths_matrix": [{{"theme":"...","evidence":["1-2","2-1"]}}],
-  "weaknesses_matrix": [{{"theme":"...","severity":"low|medium|high","evidence":["..."]}}],
   "score_aggregation": {{
     "main_avg": {{}},
     "ext_avg": {{}},
     "calibration": "..."
   }},
   "missed_opportunities": ["..."],
-  "potential_followups_global": ["..."],
-  "resume_feedback": {{
-    "job_fit_assessment": "...",
-    "strengths_and_opportunities": "...",
-    "gaps_and_improvements": "..."
-  }},
-  "hiring_recommendation": "strong_hire|hire|no_hire",
-  "next_actions": ["..."],
+      "potential_followups_global": ["..."],
+      "full_resume_analysis": {{
+      "job_fit_assessment": "...",
+      "strengths_and_opportunities": "...",
+      "gaps_and_improvements": "..."
+    }},
+    "hiring_recommendation": "strong_hire|hire|no_hire",  "next_actions": ["..."],
   "question_by_question_feedback": [
     {{
       "question_id": "1-1",
@@ -191,6 +188,31 @@ Merge all provided data to produce a comprehensive final report with both micros
       "additional_followups": ["..."]
     }}
   ]
+}}
+"""
+    + prompt_json_output_only
+)
+
+# =============================================================================
+# 신규: 주제별 종합 피드백 (Thematic Summary)
+# =============================================================================
+prompt_thematic_summary = (
+    SYSTEM_RULES
+    + """
+You are an expert interview analyst. Your goal is to provide a holistic summary for a single conversational topic, which includes a main question and one or more follow-up questions. Return ONLY valid JSON.
+
+[Rules]
+1.  **Analyze the Flow**: Read the entire conversation block. Your primary task is to assess the *progression* of the conversation.
+2.  **Assess Improvement**: Did the candidate's answers improve in response to the follow-up questions? Did they successfully clarify initial ambiguities or provide the missing details that the follow-ups were probing for?
+3.  **Form a Final Judgement**: Based on the entire exchange, provide a final, conclusive summary of the candidate's competency on this specific topic.
+4.  **Be Concise**: The summary should be 2-4 sentences long.
+
+[Input: Conversation Block for a Single Topic]
+{topic_block_json}
+
+[Output JSON Schema]
+{{
+  "thematic_summary": "A concise summary (2-4 sentences) of the candidate's overall performance on this topic, considering the entire conversation flow."
 }}
 """
     + prompt_json_output_only

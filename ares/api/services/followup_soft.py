@@ -54,18 +54,23 @@ def _template_pool(turn_type: str, company: str, role: str):
 
 def make_soft_followup(
     *,
-    llm_call_json: Callable[[str], dict],   # prompt 문자열 -> dict(JSON) 반환
-    turn_type: str,                          # "icebreak" | "intro:self" | "intro:motivation"
+    llm_call_json: Callable[[str], dict],
+    turn_type: str,
     origin_question: str,
     user_answer: str,
     company_name: str = "",
     job_title: str = "",
     persona_description: str = "공손하고 편안한 톤",
-    force: bool = False                      # True면 길이와 무관하게 1개 생성
-) -> Optional[str]:
+    force: bool = False
+) -> tuple[Optional[str], Dict[str, bool]]:
+    analysis_payload = {
+        "is_combined_intro": turn_type == "intro:combined",
+        "motivation_covered": False,
+    }
+
     # 생성 필요 판단
     if not force and not _too_short(turn_type, user_answer):
-        return None
+        return None, analysis_payload
 
     # 템플릿 1차 후보
     pool = _template_pool(turn_type, company_name, job_title)
@@ -83,11 +88,17 @@ def make_soft_followup(
             deficit_hint=_deficit_hint(turn_type, user_answer),
         )
         out = llm_call_json(prompt)
-        fu = (out or {}).get("follow_up_question","").strip()
-        # 간단한 검증
-        if fu and len(fu) <= 80 and not re.search(r"[!?]{3,}|[\u263a-\U0001f9ff]", fu):
-            return fu
+        fu = (out or {}).get("follow_up_question", "").strip()
+        
+        # intro:combined 분석 결과 파싱
+        if analysis_payload["is_combined_intro"]:
+            # LLM이 생성한 전환 문구를 통해 지원동기 포함 여부 간접적으로 판단
+            if "다음 질문" in fu or "넘어가겠습니다" in fu:
+                 analysis_payload["motivation_covered"] = True
+
+        if fu and len(fu) <= 150 and not re.search(r"[!?]{3,}|[\u263a-\U0001f9ff]", fu):
+            return fu, analysis_payload
     except Exception:
         pass
 
-    return candidate
+    return candidate, analysis_payload
