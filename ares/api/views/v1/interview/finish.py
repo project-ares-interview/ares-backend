@@ -117,7 +117,7 @@ Marks an interview session as finished and triggers the generation of the final 
                 })
 
         # --- 이력서 분석 수행 ---
-        resume_feedback = {}
+        full_resume_analysis = {}
         try:
             company_meta = {
                 "company_name": rag_info.get("company_name", ""),
@@ -129,10 +129,9 @@ Marks an interview session as finished and triggers the generation of the final 
                 research_text=research_context,
                 company_meta=company_meta
             )
-            resume_feedback = full_resume_analysis.get("resume_feedback", {})
         except Exception as e:
             log.error(f"[{session.id}] Failed to perform resume analysis for final report: {e}")
-            resume_feedback = {"error": f"Resume analysis failed: {e}"}
+            full_resume_analysis = {"error": f"Resume analysis failed: {e}"}
         # --- 이력서 분석 끝 ---
 
         interview_plan = rag_info.get("interview_plans", {}).get("raw_v2_plan", {})
@@ -147,7 +146,7 @@ Marks an interview session as finished and triggers the generation of the final 
             transcript=transcript,
             structured_scores=structured_scores,
             interview_plan=interview_plan,
-            resume_feedback=resume_feedback,
+            full_resume_analysis=full_resume_analysis,
             full_contexts=full_contexts
         )
 
