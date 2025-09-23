@@ -30,6 +30,7 @@ from ares.api.views.v1.interview.report import InterviewReportAPIView
 from ares.api.views.v1.interview.find_companies import FindCompaniesView
 from ares.api.views.v1.interview.coach import interview_coach_view
 from ares.api.views.v1.interview.admin import InterviewAdminSyncIndexAPIView  # ← 추가
+from ares.api.views.v1.interview_report import InterviewReportViewSet
 
 from ares.api.views.v1.resume_analysis import ResumeAnalysisAPIView
 from ares.api.views.v1.social import GoogleLogin, GoogleRegisterView
@@ -45,6 +46,7 @@ from ares.api.views.v1.calendar import (
 
 router = DefaultRouter()
 router.register(r"examples", ExampleViewSet, basename="example")
+router.register(r"interview-reports", InterviewReportViewSet, basename="interview-report")
 
 urlpatterns = [
     # Router URLs

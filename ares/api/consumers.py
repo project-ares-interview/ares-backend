@@ -36,6 +36,7 @@ def analysis_worker(sid, audio_buffer, full_transcript, user_gender, total_speak
     from ares.api.models import InterviewSession, InterviewTurn
     from ares.api.services import resume_service
     from ares.api.services.rag.final_interview_rag import RAGInterviewBot
+    from ares.api.models.interview_report import InterviewReport
 
     group_name = f"session_{sid}"
     channel_layer = get_channel_layer()
@@ -160,6 +161,32 @@ def analysis_worker(sid, audio_buffer, full_transcript, user_gender, total_speak
             full_contexts=full_contexts,
         )
         print(f"[{sid}] 텍스트 분석: 최종 리포트 생성 완료.")
+
+        # --- InterviewReport 업서트 저장 ---
+        try:
+            report_values = {
+                "overall_summary": final_report.get("overall_summary", ""),
+                "interview_flow_rationale": final_report.get("interview_flow_rationale", ""),
+                "strengths_matrix": final_report.get("strengths_matrix", []),
+                "weaknesses_matrix": final_report.get("weaknesses_matrix", []),
+                "score_aggregation": final_report.get("score_aggregation", {}),
+                "missed_opportunities": final_report.get("missed_opportunities", []),
+                "potential_followups_global": final_report.get("potential_followups_global", []),
+                "resume_feedback": final_report.get("resume_feedback", {}),
+                "hiring_recommendation": final_report.get("hiring_recommendation", ""),
+                "next_actions": final_report.get("next_actions", []),
+                "question_by_question_feedback": final_report.get("question_by_question_feedback", []),
+                "tags": final_report.get("tags", []),
+                "version": str(final_report.get("version", "")),
+            }
+            report, created = InterviewReport.objects.update_or_create(
+                user=session.user,
+                session=session,
+                defaults=report_values,
+            )
+            print(f"[{sid}] InterviewReport {'created' if created else 'updated'}: {report.id}")
+        except Exception as e:
+            print(f"[{sid}] InterviewReport 저장 실패: {e}")
 
         async_to_sync(channel_layer.group_send)(group_name, {
             "type": "analysis.event",
