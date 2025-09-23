@@ -163,13 +163,13 @@ Merge all provided data to produce a comprehensive final report with both micros
     "calibration": "..."
   }},
   "missed_opportunities": ["..."],
-      "potential_followups_global": ["..."],
-      "full_resume_analysis": {{
-      "job_fit_assessment": "...",
-      "strengths_and_opportunities": "...",
-      "gaps_and_improvements": "..."
-    }},
-    "hiring_recommendation": "strong_hire|hire|no_hire",  "next_actions": ["..."],
+  "potential_followups_global": ["..."],
+  "full_resume_analysis": {{
+    "job_fit_assessment": "...",
+    "strengths_and_opportunities": "...",
+    "gaps_and_improvements": "..."
+  }},
+  "hiring_recommendation": "strong_hire|hire|no_hire",  "next_actions": ["..."],
   "question_by_question_feedback": [
     {{
       "question_id": "1-1",
