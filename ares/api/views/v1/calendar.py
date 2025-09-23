@@ -4,6 +4,12 @@ from django.shortcuts import redirect
 from django.urls import reverse
 from django.http import JsonResponse
 from django.contrib.auth.decorators import login_required
+from django.http import HttpResponseRedirect
+from django.conf import settings
+from urllib.parse import urlparse
+import logging
+from django.contrib.auth import get_user_model
+from django.core.signing import Signer, BadSignature
 from rest_framework.decorators import api_view, permission_classes # 🌟 DRF 데코레이터 사용
 from rest_framework.permissions import IsAuthenticated           # 🌟 DRF 인증 사용
 from rest_framework.response import Response
@@ -13,8 +19,16 @@ from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 from ares.api.models.calendar import GoogleAuthToken # 🌟 calendar.py에서 모델을 가져옵니다.
 from django.utils import timezone 
+from rest_framework import permissions
 
-SCOPES = ['https://www.googleapis.com/auth/calendar']
+SCOPES = [
+    "https://www.googleapis.com/auth/calendar",
+    "https://www.googleapis.com/auth/userinfo.email",
+    "https://www.googleapis.com/auth/userinfo.profile",
+    "openid",
+]
+
+logger = logging.getLogger(__name__)
 
 def get_client_config():
     """환경 변수에서 클라이언트 설정을 읽어오는 헬퍼 함수."""
@@ -113,10 +127,13 @@ def calendar_view(request):
         # 3. <<<<<<< 🌟 [핵심] '마감일(raw_end)' 순서로 최종 정렬합니다 >>>>>>>>>
         processed_events.sort(key=lambda x: x.get('raw_end') or '')
         
-        return Response({'status': 'authenticated', 'events': processed_events})
+        return Response({
+            'status': 'authenticated',
+            'events': processed_events
+        })
 
     except GoogleAuthToken.DoesNotExist:
-        authorization_url = request.build_absolute_uri(reverse('authorize'))
+        authorization_url = request.build_absolute_uri(reverse('api:get_google_auth_url'))
         return Response({
             'status': 'google_auth_required',
             'authorization_url': authorization_url
@@ -169,7 +186,10 @@ def add_event(request):
             event_data['end'] = {'dateTime': end_iso, 'timeZone': 'Asia/Seoul'}
 
         service.events().insert(calendarId='primary', body=event_data).execute()
-        return Response({'status': 'success', 'message': '일정이 성공적으로 추가되었습니다.'})
+        return Response({
+            'status': 'success',
+            'message': '일정이 성공적으로 추가되었습니다.'
+        })
         
     except Exception as e:
         return Response({'error': f'이벤트 생성 중 오류 발생: {str(e)}'}, status=400)
@@ -188,7 +208,10 @@ def delete_event(request, event_id):
         service.events().delete(calendarId='primary', eventId=event_id).execute()
         
         # 성공적으로 삭제되면 메시지와 함께 200 OK 응답을 보냅니다.
-        return JsonResponse({'message': '삭제되었습니다.'}, status=200)
+        return Response({
+            'status': 'success',
+            'message': '삭제되었습니다.'
+        })
 
     except GoogleAuthToken.DoesNotExist:
         return JsonResponse({'error': 'Google 인증이 필요합니다.'}, status=401)
@@ -202,7 +225,7 @@ def delete_event(request, event_id):
 def authorize(request):
     """사용자를 Google 인증 페이지로 보냅니다."""
     flow = Flow.from_client_config(client_config=get_client_config(), scopes=SCOPES)
-    flow.redirect_uri = request.build_absolute_uri(reverse('oauth2callback'))
+    flow.redirect_uri = request.build_absolute_uri(reverse('api:oauth2callback'))
     authorization_url, state = flow.authorization_url(
         access_type='offline',
         include_granted_scopes='true',
@@ -214,19 +237,241 @@ def authorize(request):
     return redirect(authorization_url)
 
 
-@login_required # 🌟 이 뷰는 Google이 직접 호출하므로, Django 세션 기반 로그인이 더 안정적일 수 있습니다.
 def oauth2callback(request):
-    """Google에서 돌아온 사용자의 토큰을 DB에 저장하고, 프론트엔드로 돌려보냅니다."""
-    state = request.session.pop('state', '')
-    flow = Flow.from_client_config(client_config=get_client_config(), scopes=SCOPES, state=state)
-    flow.redirect_uri = request.build_absolute_uri(reverse('oauth2callback'))
-    
-    authorization_response = request.build_absolute_uri()
-    flow.fetch_token(authorization_response=authorization_response)
-    creds = flow.credentials
-    
-    GoogleAuthToken.from_credentials(request.user, creds)
-    
-    # 🌟 [핵심!] 백엔드 페이지가 아닌, 프론트엔드 앱의 특정 페이지로 돌려보냅니다.
-    #    프론트엔드는 이 주소로 돌아오면, Google 인증이 성공했음을 알 수 있습니다.
-    return redirect('/calendar?google_auth_status=success') # ⚠️ 프론트엔드 주소로 변경
+    """Google이 호출하는 콜백. 로그인 없이 state로 사용자 식별 후 토큰 저장 및 안전 리다이렉트."""
+    try:
+        logger.info("[oauth2callback] called", extra={
+            'path': request.get_full_path(),
+            'query_params': dict(request.GET.items()),
+        })
+        # 1) 반드시 쿼리의 state를 사용 (세션 state와 불일치 시 oauthlib가 mismatch 발생)
+        state = request.GET.get('state', '')
+        if not state:
+            logger.warning("[oauth2callback] missing state")
+            return redirect('/calendar?google_auth_status=error&reason=missing_state')
+
+        # 2) state 서명 검증 및 사용자 식별
+        signer = Signer()
+        try:
+            user_id_str = signer.unsign(state)
+            logger.info("[oauth2callback] state verified", extra={'user_id': user_id_str})
+        except BadSignature:
+            logger.warning("[oauth2callback] invalid state signature", extra={'state': state})
+            return redirect('/calendar?google_auth_status=error&reason=invalid_state')
+
+        User = get_user_model()
+        try:
+            user = User.objects.get(id=user_id_str)
+            logger.info("[oauth2callback] user loaded", extra={'user_id': user.id})
+        except User.DoesNotExist:
+            logger.warning("[oauth2callback] user not found", extra={'user_id': user_id_str})
+            return redirect('/calendar?google_auth_status=error&reason=user_not_found')
+
+        # 3) 동일 state로 Flow 복원 및 토큰 교환
+        flow = Flow.from_client_config(client_config=get_client_config(), scopes=SCOPES, state=state)
+        flow.redirect_uri = request.build_absolute_uri(reverse('api:oauth2callback'))
+        logger.info("[oauth2callback] redirect_uri built", extra={'redirect_uri': flow.redirect_uri})
+        authorization_response = request.build_absolute_uri()
+        logger.info("[oauth2callback] authorization_response", extra={'authorization_response': authorization_response})
+        flow.fetch_token(authorization_response=authorization_response)
+        creds = flow.credentials
+        logger.info("[oauth2callback] token fetched")
+
+        # 4) 사용자별 토큰 저장
+        GoogleAuthToken.from_credentials(user, creds)
+        logger.info("[oauth2callback] token saved", extra={'user_id': user.id})
+
+        # 5) 안전 리다이렉트 (세션 → GET 쿼리 → 기본값)
+        has_in_session = 'oauth_return_url' in request.session
+        session_key = getattr(request.session, 'session_key', None)
+        cookies = dict(request.COOKIES)
+        return_url = request.session.pop('oauth_return_url', None) or request.GET.get('return_url') or '/calendar'
+        logger.info(
+            "[oauth2callback] return_url resolved has_in_session=%s session_key=%s return_url=%s cookies=%s",
+            str(has_in_session), str(session_key), str(return_url), str(cookies)
+        )
+        return redirect(return_url)
+    except Exception as e:
+        logger.exception("[oauth2callback] unexpected error: %s", e)
+        return redirect('/calendar?google_auth_status=error')
+
+
+# =============================================================================
+# 프론트엔드 명세에 맞는 새로운 엔드포인트들
+# =============================================================================
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_events(request):
+    """이벤트 목록 조회 - 프론트엔드 명세에 맞춘 응답 형식"""
+    try:
+        # GoogleAuthToken이 존재하는지 먼저 확인
+        try:
+            token_model = request.user.googleauthtoken
+        except GoogleAuthToken.DoesNotExist:
+            return Response({
+                'status': 'google_auth_required',
+                'message': 'Google 인증이 필요합니다.'
+            })
+        
+        creds = token_model.to_credentials()
+
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+            GoogleAuthToken.from_credentials(request.user, creds)
+        
+        service = build('calendar', 'v3', credentials=creds)
+        
+        # 현재 시간부터 이벤트 조회
+        now = datetime.datetime.utcnow().isoformat() + 'Z'
+        
+        events_result = service.events().list(
+            calendarId='primary', 
+            timeMin=now,
+            q=EVENT_TAG,  # [ARES_JOB] 태그가 있는 일정만 가져옵니다.
+            maxResults=100, 
+            singleEvents=True,
+            orderBy='startTime'
+        ).execute()
+        
+        raw_events = events_result.get('items', [])
+        
+        events = []
+        
+        for event in raw_events:
+            start_info = event.get('start', {})
+            end_info = event.get('end', {})
+            
+            start_str_raw = start_info.get('dateTime', start_info.get('date'))
+            end_str_raw = end_info.get('dateTime', end_info.get('date'))
+
+            # 날짜/시간을 ISO 형식으로 변환
+            start_display = start_str_raw if start_str_raw else "정보 없음"
+            end_display = end_str_raw if end_str_raw else "정보 없음"
+            
+            events.append({
+                'id': event.get('id'),
+                'summary': event.get('summary', '').replace(EVENT_TAG, '').strip(),
+                'description': event.get('description', ''),
+                'start': start_display,
+                'end': end_display,
+            })
+
+        return Response({
+            'status': 'authenticated',
+            'events': events
+        })
+
+    except Exception as e:
+        return Response({
+            'status': 'error',
+            'message': f'이벤트 조회 중 오류 발생: {str(e)}'
+        }, status=500)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_google_auth_url(request):
+    """Google OAuth URL 생성 - 프론트엔드에서 사용할 URL 반환"""
+    try:
+        flow = Flow.from_client_config(client_config=get_client_config(), scopes=SCOPES)
+        flow.redirect_uri = request.build_absolute_uri(reverse('api:oauth2callback'))
+
+        # 사용자 식별 정보를 안전하게 state에 서명하여 담습니다 (백엔드 콜백용)
+        signer = Signer()
+        user_state = signer.sign(str(request.user.id))
+
+        # 현재 페이지로 돌아가기 위한 return_url 저장 (없으면 기본 경로)
+        return_url = request.GET.get('return_url')
+        _session_key = getattr(request.session, 'session_key', None)
+        _session_keys_before = list(request.session.keys())
+        _cookies_snapshot = dict(request.COOKIES)
+        logger.info(
+            "[get_google_auth_url] received return_url=%s session_key=%s session_keys_before=%s cookies=%s",
+            str(return_url), str(_session_key), str(_session_keys_before), str(_cookies_snapshot)
+        )
+
+        # 요청받은 값을 그대로 사용 (정상성 검증은 콜백 단계에서 수행)
+        request.session['oauth_return_url'] = return_url
+        _session_key_after = getattr(request.session, 'session_key', None)
+        _has_oauth_return_url = 'oauth_return_url' in request.session
+        _session_keys_after = list(request.session.keys())
+        logger.info(
+            "[get_google_auth_url] stored session_key=%s has_oauth_return_url=%s session_keys_after=%s",
+            str(_session_key_after), str(_has_oauth_return_url), str(_session_keys_after)
+        )
+
+        authorization_url, state = flow.authorization_url(
+            access_type='offline',
+            include_granted_scopes='true',
+            prompt='consent',
+            state=user_state
+        )
+        # 필요 시 검증 대비로도 보관 가능하지만, 모바일/웹 콜백에서 쿠키가 없을 수 있으므로 state 자체에 담습니다
+        request.session['state'] = state
+        
+        return Response({
+            'authorization_url': authorization_url,
+            'state': state
+        })
+    except Exception as e:
+        return Response({
+            'status': 'error',
+            'message': f'Google 인증 URL 생성 중 오류 발생: {str(e)}'
+        }, status=500)
+
+
+@api_view(['POST'])
+@permission_classes([permissions.AllowAny])
+def handle_google_auth_callback(request):
+    """Google OAuth 콜백 처리 - 프론트엔드에서 code와 state를 받아서 처리"""
+    try:
+        code = request.data.get('code')
+        state = request.data.get('state')
+        
+        if not code:
+            return Response({
+                'status': 'error',
+                'message': 'Authorization code가 필요합니다.'
+            }, status=400)
+
+        # state에서 사용자 식별 복원
+        signer = Signer()
+        try:
+            user_id_str = signer.unsign(state)
+        except BadSignature:
+            return Response({
+                'status': 'error',
+                'message': 'Invalid state parameter'
+            }, status=400)
+        User = get_user_model()
+        try:
+            user = User.objects.get(id=user_id_str)
+        except User.DoesNotExist:
+            return Response({
+                'status': 'error',
+                'message': 'Invalid user in state'
+            }, status=400)
+        
+        flow = Flow.from_client_config(client_config=get_client_config(), scopes=SCOPES, state=state)
+        flow.redirect_uri = request.build_absolute_uri(reverse('api:oauth2callback'))
+        
+        # Authorization code를 사용해서 토큰 교환
+        flow.fetch_token(code=code)
+        creds = flow.credentials
+        
+        # 토큰을 데이터베이스에 저장
+        GoogleAuthToken.from_credentials(user, creds)
+        
+        # 세션에서 state 제거
+        request.session.pop('state', '')
+        
+        # 안전 리다이렉트: 세션 → 요청 바디 → 기본값 순으로 결정
+        return_url = request.session.pop('oauth_return_url', None) or request.data.get('return_url')
+        return HttpResponseRedirect(return_url)
+        
+    except Exception as e:
+        return Response({
+            'status': 'error',
+            'message': f'OAuth 콜백 처리 중 오류 발생: {str(e)}'
+        }, status=500)

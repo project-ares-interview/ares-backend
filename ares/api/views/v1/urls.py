@@ -37,7 +37,10 @@ from ares.api.views.v1.user import UserDetailView, UserRegisterView
 from dj_rest_auth.views import LoginView, LogoutView
 
 from ares.api.views.v1.analyze import AnalyzeView, PercentileAnalysisView, GenerateAIAdviceView
-from ares.api.views.v1.calendar import calendar_view, add_event, authorize, oauth2callback, delete_event
+from ares.api.views.v1.calendar import (
+    calendar_view, add_event, authorize, oauth2callback, delete_event,
+    get_events, get_google_auth_url, handle_google_auth_callback
+)
 
 
 router = DefaultRouter()
@@ -284,10 +287,13 @@ urlpatterns = [
 
     # ----- Calendar & Google OAuth -----
     path("calendar/", calendar_view, name="calendar"),
+    path("calendar/events/", get_events, name="get_events"),
     path("calendar/add-event/", add_event, name="add_event"),
     path("calendar/delete-event/<str:event_id>/", delete_event, name="delete_event"),
+    path("calendar/google-auth-url/", get_google_auth_url, name="get_google_auth_url"),
+    path("calendar/google-auth-callback/", handle_google_auth_callback, name="handle_google_auth_callback"),
 
-    # Google OAuth (Calendar linking)
+    # Google OAuth (Calendar linking) - 기존 엔드포인트 (호환성 유지)
     path("google/authorize/", authorize, name="authorize"),
     path("google/callback/", oauth2callback, name="oauth2callback"),
 ]
