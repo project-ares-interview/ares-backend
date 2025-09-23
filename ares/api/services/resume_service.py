@@ -72,10 +72,11 @@ def ncs_post_filter(items: List[Dict], ncs_codes: Dict[str, str], top_k: int = 6
 
 # ---------- 프롬프트(시스템) ----------
 SYS_DEEP = (
-    "너는 {persona}다. 문서를 JD 기준으로 평가·교정한다. "
+    "너는 {persona}다. 문서를 JD와 [회사 인재상] 기준으로 평가·교정한다. "
     "목표: 매칭도 향상, 정량 근거 강화, ATS 통과 가능성 제고. "
     "출력은 한국어, 섹션/불릿 위주, 즉시 반영 가능한 구체 예시 포함. "
-    "금지어: '열심히','최대한','많이'. 가능하면 수치/기간/규모/영향 명시."
+    "금지어: '열심히','최대한','많이'. 가능하면 수치/기간/규모/영향 명시.\n"
+    "[회사 인재상]\n{ideal_candidate_profile}"
 )
 SYS_CMP = (
     "너는 {persona}다. 제공된 [사전 검증 결과]를 바탕으로, 여러 문서의 일관성·정합성을 자연스러운 문장으로 설명한다. "
@@ -176,7 +177,16 @@ def analyze_all(jd_text: str, resume_text: str, research_text: str, company_meta
     
     persona = jd_analysis["persona"]
     
-    deep_out = analyze_resume_or_cover(resume_text, jd_text=jd_analysis["cleaned_jd"], meta=company_meta, persona=persona)
+    company_name = company_meta.get("company_name", "")
+    ideal_candidate_profile = get_company_description(company_name) if company_name else "인재상 정보 없음"
+
+    deep_out = analyze_resume_or_cover(
+        resume_text, 
+        jd_text=jd_analysis["cleaned_jd"], 
+        meta=company_meta, 
+        persona=persona,
+        ideal_candidate_profile=ideal_candidate_profile
+    )
     
     named_texts = {"JD": jd_analysis["cleaned_jd"], "이력서": resume_text}
     cmp_out = compare_documents(named_texts, meta=company_meta, resume_text_raw=resume_text, persona=persona)
@@ -189,7 +199,7 @@ def analyze_all(jd_text: str, resume_text: str, research_text: str, company_meta
 
     return {"심층분석": deep_out, "교차분석": cmp_out, "정합성점검": aln_out, "NCS요약": ncs_out, "ncs_context": ncs_ctx}
 
-def analyze_resume_or_cover(text: str, jd_text: str = "", meta: Dict[str, Any] | None = None, persona: str = "대기업 채용담당자+커리어코치") -> str:
+def analyze_resume_or_cover(text: str, jd_text: str = "", meta: Dict[str, Any] | None = None, persona: str = "대기업 채용담당자+커리어코치", ideal_candidate_profile: str = "인재상 정보 없음") -> str:
     text = (text or "").strip()
     jd_text = (jd_text or "").strip()
 
@@ -208,14 +218,18 @@ def analyze_resume_or_cover(text: str, jd_text: str = "", meta: Dict[str, Any] |
               f"[선택적 JD]\n{jd_text[:CFG.max_jd_chars]}\n\n" \
               "요구 출력:\n" \
               "1) 핵심 요약(직무연관성 중심)\n" \
-              "2) JD 매칭도(상/중/하 + 근거: 키워드/경험/지표)\n" \
+              "2) JD 및 인재상 매칭도(상/중/하 + 근거: 키워드/경험/지표/인재상 부합)\n" \
               "3) 키워드 커버리지 표(빠진 키워드 표시)\n" \
               "4) STAR 사례(각 S/T/A/R-C 1~2문장 템플릿)\n" \
               "5) 정량화 개선안(지표/기간/규모/도구: 예문)\n" \
               "6) ATS 리스크/수정안(형식/키워드/중복/가독성)\n" \
               "7) 체크리스트(제출 직전 점검)\n"
         
-        msgs = [{"role": "system", "content": SYS_DEEP.format(persona=persona)},
+        system_prompt_content = SYS_DEEP.format(
+            persona=persona,
+            ideal_candidate_profile=ideal_candidate_profile
+        )
+        msgs = [{"role": "system", "content": system_prompt_content},
                 {"role": "user", "content": usr}]
         
         out = chat(msgs, temperature=CFG.t_deep)

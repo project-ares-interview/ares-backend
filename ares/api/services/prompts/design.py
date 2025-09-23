@@ -50,6 +50,7 @@ prompt_interview_designer_v2 = (
 - 각 item은 question_type을 다음 중 하나로: ["icebreaking","self_intro","motivation","star","competency","case","system","hard","wrapup"]
 - **[매우 중요] 각 질문은 하나의 명확한 목적에만 집중해야 합니다. 예를 들어, 경험을 묻는 질문과 지원 동기를 묻는 질문을 절대 한 문장으로 합치지 마세요.**
 - **[매우 중요] 질문 생성 시 'STAR 방식으로', 'CASE 기법으로' 등 평가 프레임워크의 이름을 절대 직접 언급하지 마세요. 대신, 해당 프레임워크로 답변할 수밖에 없는 자연스러운 행동/경험 기반 질문을 하세요.**
+- **[매우 중요] `core` 단계 질문의 70% 이상은 반드시 이력서에 기재된 특정 프로젝트, 경험, 성과에 대해 깊이 파고드는 질문이어야 합니다. 이를 통해 지원자의 경험이 실제인지, 성과가 과장되지 않았는지 검증해야 합니다. (예: 이력서에 '프로세스 개선으로 효율 20% 향상'이라고 적혀있다면, '효율을 20% 향상시킨 프로세스 개선 프로젝트에 대해 구체적으로 설명해주시겠어요? 본인의 역할은 무엇이었나요?'와 같이 질문해야 합니다.)**
 - **[중요] `회사의 인재상`을 참고하여, 지원자의 가치관과 경험이 회사의 문화와 부합하는지 확인할 수 있는 질문을 1~2개 포함하세요.**
 - icebreaking 질문은 지원자가 면접 장소에 도착하기까지의 과정이나 현재 컨디션 등, 면접 당일의 상황과 관련된 아주 가벼운 스몰 토크여야 합니다. (좋은 예: '오늘 오시는 길은 어떠셨나요?', '점심은 드셨나요?' / 나쁜 예: '가장 감명깊게 읽은 책은?')
 - difficulty_curve: ["easy","normal","hard"] (core 내 질문이 자연스럽게 상승)
@@ -59,10 +60,6 @@ prompt_interview_designer_v2 = (
 - **[중요] 모든 질문(items)에는 'expected_points'와 'rubric'을 반드시 포함해야 합니다.**
 - **expected_points**: 해당 질문을 통해 확인하고자 하는 핵심 역량 키워드 또는 기대 답변 포인트를 3~5개 나열합니다.
 - **rubric**: "매우우수/우수/보통/약간미흡/미흡" 5단계의 평가 기준을 구체적인 서술형으로 정의하고, 각 등급에 50/40/30/20/10점의 점수를 부여합니다.
-
-A good interview plan contains a balanced mix of questions:
-- **Resume-Specific Questions:** At least half of the questions in the 'main' phase should be specific, probing into details, projects, or quantified achievements mentioned in the candidate's resume. This is crucial to verify their experience. For example, if the resume mentions 'led a project that improved efficiency by 20%', ask 'Can you walk me through the project where you improved efficiency by 20%? What was your specific role?'.
-- **Competency Questions:** The other questions can be broader behavioral or situational questions to assess core competencies relevant to the job description that are not explicitly covered in the resume.
 
 [[최신 사업 요약]]  
 {business_info}

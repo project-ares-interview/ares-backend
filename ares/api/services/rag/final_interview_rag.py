@@ -17,14 +17,19 @@ import random
 from typing import Any, Dict, List, Optional
 
 from ares.api.services.prompts import (
-    prompt_rag_answer_analysis,
-    make_icebreak_question_llm_or_template,
-    ICEBREAK_TEMPLATES_KO,
+    prompt_identifier,
+    prompt_extractor,
     prompt_scorer,
     prompt_coach,
     prompt_model_answer,
     prompt_intent_classifier,
+    prompt_rag_answer_analysis,
 )
+from ares.api.services.company_data import get_company_description
+from .bot.base import RAGBotBase
+from .bot.planner import InterviewPlanner
+from .bot.analyzer import AnswerAnalyzer
+from .bot.reporter import ReportGenerator
 from .bot.base import RAGBotBase
 from .bot.planner import InterviewPlanner
 from .bot.analyzer import AnswerAnalyzer
@@ -66,6 +71,7 @@ class RAGInterviewBot:
         # 표준 스키마로 보관되는 현재 계획
         # {"icebreakers":[...], "stages":[{title, questions:[{id,text,followups:[]}, ...]}]}
         self.plan: Dict[str, Any] = {"icebreakers": [], "stages": []}
+        self.transcript: List[Dict[str, Any]] = []
 
     # -----------------------------
     # Plan (설계)
@@ -235,6 +241,8 @@ class RAGInterviewBot:
             persona_description=persona_desc,
             scoring_reason=scoring_result.get("scoring_reason", ""),
             user_answer=answer,
+            resume_context=self.base.resume_context,
+            ideal_candidate_profile=get_company_description(self.base.company_name),
             retrieved_ncs_details=ncs_details,
             company_name=self.base.company_name
         )
@@ -262,6 +270,17 @@ class RAGInterviewBot:
             "model_answer": model_answer_result,
         }
         
+        # 대화록에 현재 턴 기록 추가
+        self.transcript.append({
+            "turn": len(self.transcript) + 1,
+            "question": question,
+            "answer": answer,
+            "analysis_summary": {
+                "feedback": base_analysis.get("feedback"),
+                "scoring_reason": scoring_result.get("scoring_reason")
+            }
+        })
+        
         print(f"[INFO] 답변 분석 파이프라인 완료.")
         return final_result
 
@@ -284,6 +303,7 @@ class RAGInterviewBot:
             original_question=original_question,
             answer=answer,
             analysis=analysis,
+            transcript=self.transcript,
             stage=stage,
             objective=objective,
             question_item=question_item,

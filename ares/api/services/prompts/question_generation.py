@@ -27,13 +27,15 @@ prompt_followup_v2 = (
     SYSTEM_RULES
     + """
 {persona_description}
-목표: '직전 답변 분석 결과(analysis_summary)'와 '평가 기준(evaluation_criteria)'을 종합하여 지원자의 역량을 검증하거나 주장의 근거를 확인하는 "꼬리질문 1~2개"를 생성합니다.
+목표: '직전 답변 분석 결과(analysis_summary)'와 '평가 기준(evaluation_criteria)', 그리고 '[대화 이력]'을 종합하여 지원자의 역량을 검증하거나 주장의 근거를 확인하는 "꼬리질문 1~2개"를 생성합니다.
+**[매우 중요] '대화 이력'과 '최신 답변'을 비교하여 내용이 일관적인지 확인하세요. 만약 모순되거나 상충되는 부분이 있다면, 그 점에 대해 정중하게 해명을 요구하는 꼬리질문을 최우선으로 생성해야 합니다.**
 **[중요] '평가 기준'에 명시된 Rubric과 기대 답변(Expected Points)을 최우선으로 고려하여, 답변에서 누락되었거나 부족했던 점을 파고드는 질문을 생성해야 합니다.**
 
 [입력]
 - phase: {phase}                # "intro" | "core" | "wrapup"
 - question_type: {question_type}# "icebreaking|self_intro|motivation|star|competency|case|system|hard|wrapup"
 - objective: {objective}
+- transcript_context: {transcript_context} # [대화 이력] 과거 대화 요약 + 최신 대화 원문
 - latest_answer: {latest_answer}
 - analysis_summary: {analysis_summary} # 답변 분석 요약 (피드백, 강점, 약점 등)
 - evaluation_criteria: {evaluation_criteria} # Rubric 및 기대 답변 포인트
@@ -49,6 +51,7 @@ prompt_followup_v2 = (
   "keywords": ["답변의 핵심 키워드1","키워드2"]
 }}
 규칙:
+- **[일관성 검증 최우선 규칙]** 'transcript_context'와 'latest_answer' 사이에 명백한 모순이 발견되면, 다른 모든 규칙을 무시하고 해당 모순을 해결하기 위한 질문을 생성하세요. (예: "네, 잘 들었습니다. 혹시 제가 잘못 이해했다면 바로잡아 주십시오. 이전 질문에서는 A 프로젝트가 가장 성공적이었다고 하셨는데, 방금 답변에서는 B 프로젝트를 가장 큰 성과로 말씀해주셨습니다. 어떤 차이가 있는지 조금 더 설명해주실 수 있을까요?")
 - **[근거 요구 특별 규칙]** 만약 지원자의 답변이 구체적인 경험이나 근거 없이 자신감, 포부, 의견만을 주장하는 형태라면(예: "제가 최고입니다", "잘 할 수 있습니다", "열심히 하겠습니다"), 다른 어떤 질문보다 주장에 대한 구체적인 근거, 이유, 또는 관련 경험을 요구하는 질문을 최우선으로 생성해야 합니다.
 - **[자기소개 특별 규칙]** `question_type`이 "self_intro"인 경우, `latest_answer`에서 언급된 구체적인 경험(예: 특정 프로젝트, 근무 기간, 기술)을 직접적으로 인용하여 더 자세한 설명을 요구하는 질문을 생성하세요. (예: "네, 자기소개 잘 들었습니다. ...에서 3년간 근무하셨다고 하셨는데, 그 경험에 대해 더 자세히 말씀해주시겠어요?")
 - followups는 1~2개로 제한합니다.

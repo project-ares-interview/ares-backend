@@ -7,6 +7,9 @@ from rest_framework import status, permissions
 from rest_framework.parsers import MultiPartParser, JSONParser
 from drf_spectacular.utils import extend_schema
 
+# Models
+from ares.api.models.user import Profile
+
 # Serializers
 from ares.api.serializers.v1.resume_analysis import (
     ResumeAnalysisInSerializer,
@@ -239,7 +242,7 @@ The input can be either text or file uploads.
                 user = User.objects.filter(id=1).first()
 
             if user:
-                profile = user.profile
+                profile, created = Profile.objects.get_or_create(user=user)
                 profile.jd_context = refined_jd_text
                 profile.resume_context = refined_resume_text
                 profile.research_context = refined_research_text

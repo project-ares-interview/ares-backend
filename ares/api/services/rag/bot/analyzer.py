@@ -220,6 +220,7 @@ class AnswerAnalyzer:
         original_question: str,
         answer: str,
         analysis: Dict,
+        transcript: List[Dict],
         stage: str,
         objective: str,
         question_item: Optional[Dict] = None,
@@ -276,12 +277,39 @@ class AnswerAnalyzer:
                 evaluation_criteria = criteria_text
             # --- 끝 ---
 
+            # --- 대화록 컨텍스트 가공 (요약 + 최신) ---
+            transcript_context = "(대화 이력 없음)"
+            if transcript:
+                # 최신 3개 턴은 원문 유지
+                recent_turns = transcript[-3:]
+                recent_transcript_text = "\n".join([
+                    f"Q: {t.get('question', '')}\nA: {t.get('answer', '')}"
+                    for t in recent_turns
+                ])
+
+                # 그 이전 턴들은 요약 (실제로는 별도 LLM 호출 필요)
+                summary_text = ""
+                if len(transcript) > 3:
+                    # 여기서는 간단히 질문 목록만으로 요약 대체
+                    past_questions = [t.get('question', '') for t in transcript[:-3]]
+                    summary_text = "이전 대화 주제: " + ", ".join(past_questions)
+                
+                transcript_context = f"""
+[과거 대화 요약]
+{summary_text}
+
+[최신 대화 내용]
+{recent_transcript_text}
+"""
+            # --- 끝 ---
+
             prompt = (
                 prompt_followup_v2
                 .replace("{persona_description}", persona_desc)
                 .replace("{phase}", current_phase)
                 .replace("{question_type}", current_question_type)
                 .replace("{objective}", objective or "")
+                .replace("{transcript_context}", _truncate(transcript_context, 4000)) # 대화록 컨텍스트 추가
                 .replace("{latest_answer}", _truncate(answer, 1500))
                 .replace("{analysis_summary}", _truncate(analysis_summary, 2000)) # 답변 분석 결과 추가
                 .replace("{evaluation_criteria}", evaluation_criteria) # 평가 기준 주입

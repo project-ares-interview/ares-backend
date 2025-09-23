@@ -166,6 +166,8 @@ It generates the first question and returns a new session ID.
 
             session = InterviewSession.objects.create(
                 user=user,  # 인증 여부와 관계없이 user 객체를 세션에 연결
+                jd_context=jd_context,
+                resume_context=resume_context,
                 ncs_query=ncs_ctx.get("ncs_query", ""), meta={**to_jsonable(meta), "fsm": fsm},
                 context=to_jsonable(ncs_ctx), rag_context=to_jsonable(rag_context_to_save),
                 language=(v.get("language") or "ko").lower(), difficulty=difficulty,

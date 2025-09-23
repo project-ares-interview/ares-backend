@@ -119,6 +119,7 @@ prompt_scorer = (
 - 기본 요소(scores_main): 요소당 0~20점
 - 확장 요소(scores_ext: challenge, learning, metrics): 요소당 0~10점
 - 누락 요소는 0점
+- **[중요]** `scores_main`의 키는 바로 아래 [프레임워크 요소] 섹션에 정의된 `{framework_name}`의 기본 요소들을 사용해야 합니다.
 [프레임워크 요소]
 STAR: situation, task, action, result
 SYSTEMDESIGN: requirements, trade_offs, architecture, risks
@@ -126,8 +127,8 @@ CASE: problem, structure, analysis, recommendation
 COMPETENCY: competency, behavior, impact
 [출력]
 {{
-  "framework": "STAR|SYSTEMDESIGN|CASE|COMPETENCY",
-  "scores_main": {{"요소명": 0}},
+  "framework": "{framework_name}",
+  "scores_main": {{"요소1": 0, "요소2": 0, "...": 0}},
   "scores_ext": {{"challenge": 0, "learning": 0, "metrics": 0}},
   "scoring_reason": "300~600자 요약"
 }}
@@ -152,7 +153,7 @@ scoring_reason: {scoring_reason}
 role: {role}
 [출력]
 {{
-  "framework": "STAR|SYSTEMDESIGN|CASE|COMPETENCY",
+  "framework": "{framework}",
   "calibration": [
     {{"element": "요소명", "given": 0, "max": 20, "gap": 20,
       "why_not_max": "...", "how_to_improve": ["...", "..."]}}
@@ -179,9 +180,14 @@ prompt_coach = (
 {scoring_reason}
 [지원자 원본 답변]
 {user_answer}
+[지원자 이력서]
+{resume_context}
+[회사 인재상]
+{ideal_candidate_profile}
 [참고(NCS)]
 {retrieved_ncs_details}
 [가이드라인]
+- **[매우 중요] 피드백은 반드시 [회사 인재상] 및 [지원자 이력서] 내용과 연결해야 합니다. 지원자의 경험이 회사의 가치와 어떻게 부합하는지, 또는 이력서의 어떤 경험을 더 강조하면 좋을지 구체적으로 설명하세요.**
 - 강점/개선점 각각 3~5개(문장당 ≤120자)
 - 각 항목에 반드시 원문 특정 구절 '직접 인용' 포함
 - 총평 3~5문장
