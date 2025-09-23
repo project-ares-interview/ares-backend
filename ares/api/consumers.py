@@ -156,7 +156,7 @@ def analysis_worker(sid, audio_buffer, full_transcript, user_gender, total_speak
             transcript=transcript,
             structured_scores=structured_scores,
             interview_plan=interview_plan,
-            resume_feedback=resume_feedback,
+            full_resume_analysis=full_resume_analysis,  # resume_feedback 대신 전체 분석 결과 전달
             full_contexts=full_contexts,
         )
         print(f"[{sid}] 텍스트 분석: 최종 리포트 생성 완료.")

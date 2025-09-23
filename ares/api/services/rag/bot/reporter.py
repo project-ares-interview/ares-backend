@@ -27,7 +27,7 @@ class ReportGenerator:
         transcript: List[Dict[str, Any]], 
         structured_scores: List[Dict[str, Any]],
         interview_plan: Optional[Dict[str, Any]] = None,
-        resume_feedback: Optional[Dict[str, Any]] = None,
+        full_resume_analysis: Optional[Dict[str, Any]] = None, # resume_feedback -> full_resume_analysis
         full_contexts: Optional[Dict[str, str]] = None
     ) -> Dict[str, Any]:
         """
@@ -74,7 +74,10 @@ class ReportGenerator:
             # ==================================================================
             transcript_digest = json.dumps(transcript, ensure_ascii=False)
             plan_json = json.dumps(interview_plan or {}, ensure_ascii=False)
-            resume_json = json.dumps(resume_feedback or {}, ensure_ascii=False)
+            # full_resume_analysis에서 resume_feedback 부분만 추출하여 프롬프트에 전달
+            resume_feedback_for_prompt = (full_resume_analysis or {}).get("resume_feedback", {})
+            resume_json = json.dumps(resume_feedback_for_prompt, ensure_ascii=False)
+
             dossiers_json = json.dumps(per_question_dossiers, ensure_ascii=False)
             contexts_json = json.dumps(full_contexts or {}, ensure_ascii=False)
 
@@ -103,12 +106,23 @@ class ReportGenerator:
                 # 이 방식은 AI가 토큰 제한이나 다른 이유로 리스트를 누락/요약하는 것을 원천적으로 방지하여,
                 # 항상 모든 질문에 대한 피드백이 완전하게 포함되도록 보장합니다.
                 final_result['question_by_question_feedback'] = per_question_dossiers
+
+                # [추가] 사용자가 요청한 원본 데이터들을 최종 리포트에 추가합니다.
+                final_result['original_source_documents'] = full_contexts
+                final_result['original_interview_plan'] = interview_plan
+                final_result['original_resume_analysis'] = full_resume_analysis
+
                 return final_result
             else: # JSON 파싱 실패 시 복구 시도
                 _debug_print_raw_json("FINAL_REPORT_FIRST_PASS", raw_final_str or "")
                 corrected_raw = self.bot._chat_json_correction(prompt_overview, raw_final_str)
                 final_result = safe_extract_json(corrected_raw)
                 if final_result:
+                    # 복구된 결과에도 동일한 후처리 적용
+                    final_result['question_by_question_feedback'] = per_question_dossiers
+                    final_result['original_source_documents'] = full_contexts
+                    final_result['original_interview_plan'] = interview_plan
+                    final_result['original_resume_analysis'] = full_resume_analysis
                     return final_result
                 _debug_print_raw_json("FINAL_REPORT_CORRECTION_FAILED", corrected_raw)
                 return {"error": "Failed to parse final report after correction"}
