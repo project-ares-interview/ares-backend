@@ -224,15 +224,30 @@ class AzureBlobRAGSystem:
             # metadata는 stringified JSON으로 저장되어 있음
             results = self.search_client.search(search_text="*", select=["doc_id", "metadata"])
             for doc in results:
+                # metadata는 문자열 또는 dict일 수 있으므로 안전 파싱
+                raw_meta = doc.get("metadata", "{}")
+                meta: Dict[str, str] = {}
                 try:
-                    meta = json.loads(doc.get("metadata", "{}"))
-                    indexed[doc["doc_id"]] = {
-                        "last_modified": meta.get("last_modified", ""),
-                        "etag": meta.get("etag", ""),
-                        "sha256": meta.get("sha256", ""),
-                    }
+                    if isinstance(raw_meta, str):
+                        meta = json.loads(raw_meta) if raw_meta else {}
+                    elif isinstance(raw_meta, dict):
+                        meta = raw_meta
+                    else:
+                        meta = {}
                 except Exception:
+                    meta = {}
+
+                # 키 우선순위: doc.doc_id → meta.file_name → meta.doc_id
+                key = doc.get("doc_id") or meta.get("file_name") or meta.get("doc_id")
+                if not key:
+                    # 키가 없으면 스킵
                     continue
+
+                indexed[key] = {
+                    "last_modified": meta.get("last_modified", ""),
+                    "etag": meta.get("etag", ""),
+                    "sha256": meta.get("sha256", ""),
+                }
             print(f"  ✅ 인덱스에 {len(indexed)}개 문서 메타 수집.")
         except Exception as e:
             print(f"  ⚠️ 인덱스 메타데이터 조회 실패(비어있을 수 있음): {e}")
@@ -475,28 +490,34 @@ class AzureBlobRAGSystem:
                 new_docs = self.load_documents_from_blob(blobs_to_load)
 
                 if new_docs:
-                    print(f"⚡ 문서 {len(new_docs)}개를 새로 인덱싱/업데이트합니다...")
-                    node_parser = Settings.node_parser
-                    for doc in new_docs:
-                        # 업데이트 시 기존 노드가孤立되는 것을 방지하기 위해 먼저 삭제
-                        self.delete_doc(doc.id_) 
+                    # 같은 파일(blob)이 여러 Document로 분할된 경우를 합쳐 파일당 1회만 인덱싱
+                    docs_by_id: Dict[str, List[Document]] = {}
+                    for d in new_docs:
+                        docs_by_id.setdefault(d.id_, []).append(d)
 
-                        nodes = node_parser.get_nodes_from_documents([doc])
-                        print(f"  - '{doc.id_}'에서 {len(nodes)}개의 노드 생성. 50개씩 배치하여 인덱싱합니다.")
-                        
+                    print(f"⚡ 문서 {len(docs_by_id)}개를 새로 인덱싱/업데이트합니다...")
+                    node_parser = Settings.node_parser
+                    for doc_id, docs in docs_by_id.items():
+                        # 업데이트 시 기존 노드가 고립되는 것을 방지하기 위해 먼저 삭제
+                        self.delete_doc(doc_id)
+
+                        nodes = node_parser.get_nodes_from_documents(docs)
+                        print(f"  - '{doc_id}'에서 {len(nodes)}개의 노드 생성. 50개씩 배치하여 인덱싱합니다.")
+
                         batch_size = 50
-                        for i in tqdm(range(0, len(nodes), batch_size), desc=f"'{doc.id_}' 인덱싱"):
+                        for i in tqdm(range(0, len(nodes), batch_size), desc=f"'{doc_id}' 인덱싱"):
                             batch = nodes[i:i+batch_size]
                             self.index.insert_nodes(batch)
-                        
-                        print(f"  - 문서 '{doc.id_}' 인덱싱 완료.")
-                        
-                        # 처리된 문서의 메타데이터 업데이트
-                        fname = doc.metadata.get("file_name") or doc.id_
+
+                        print(f"  - 문서 '{doc_id}' 인덱싱 완료.")
+
+                        # 처리된 문서의 메타데이터 업데이트(첫 문서 기준)
+                        first = docs[0]
+                        fname = first.metadata.get("file_name") or doc_id
                         self.meta_store.set(fname, {
-                            "etag": doc.metadata.get("etag", ""),
-                            "sha256": doc.metadata.get("sha256", ""),
-                            "last_modified": doc.metadata.get("last_modified", ""),
+                            "etag": first.metadata.get("etag", ""),
+                            "sha256": first.metadata.get("sha256", ""),
+                            "last_modified": first.metadata.get("last_modified", ""),
                         })
             
             self.meta_store.save()
