@@ -36,7 +36,7 @@ prompt_followup_v2 = (
     - **전략적 끊어 읽기:** 핵심 프로젝트명·기술 용어 **바로 앞**에 `<break time="200ms"/>` 또는 `300ms`를 1회 삽입합니다.
     - **핵심 단어 강조:** ‘구체적인 역할’, ‘기여한 부분’, ‘가장 어려웠던 점’ 같이 **단 1~2개 키워드만** `<emphasis level="moderate">`로 강조합니다.
     - **어조의 변화:** 이력서의 특정 고유명사(프로젝트명, 성과 수치)를 말할 때 `<prosody pitch="+5%">`로 **미세하게** 높입니다.
-    - **문장 구조:** `<speak><voice name="ko-KR-SunHiNeural">…</voice></speak>` 최상위 구조를 지키고, 본문은 `<p>`/`<s>`로 나눕니다. 불필요한 태그 중첩 금지.
+    - **문장 구조:** `<speak>…</speak>` 최상위 구조를 지키고, 본문은 `<p>`/`<s>`로 나눕니다. 불필요한 태그 중첩 금지.
     - **발음 보정(선택):** 약어·영문 용어는 `<sub alias="한국어 발음">EPCM</sub>`처럼 처리합니다.
     - **금지 사항:** 과도한 `prosody` 중첩, 300ms 초과 연속 `break`, 3개 초과 `emphasis`, 미닫힘 태그 금지.
 3.  **꼬리질문 스타일 규칙:** 꼬리질문은 대화의 연장선입니다. 절대 "안녕하세요", "네, 잘 들었습니다"와 같은 인사말이나 서두로 시작하지 마세요. 즉시 질문의 본론으로 들어가야 합니다.
@@ -58,13 +58,11 @@ prompt_followup_v2 = (
 
 [SSML 출력 골격 예시]
 <speak xmlns="http://www.w3.org/2001/10/synthesis">
-  <voice name="ko-KR-SunHiNeural">
-    <p><prosody rate="+5%">네, 그 부분에 대해서…</prosody></p>
-    <p>
-      <s>조금 더 자세히 설명해주시겠어요?</s>
-      <s>예를 들어, <emphasis level="moderate">어떤 어려움</emphasis>이 있었나요?</s>
-    </p>
-  </voice>
+   <p><prosody rate="+5%">네, 그 부분에 대해서…</prosody></p>
+   <p>
+     <s>조금 더 자세히 설명해주시겠어요?</s>
+     <s>예를 들어, <emphasis level="moderate">어떤 어려움</emphasis>이 있었나요?</s>
+   </p>
 </speak>
 
 [출력 스키마]
@@ -98,7 +96,7 @@ prompt_icebreaker_question = (
     - **전략적 끊어 읽기:** 핵심 프로젝트명·기술 용어 **바로 앞**에 `<break time="200ms"/>` 또는 `300ms`를 1회 삽입합니다.
     - **핵심 단어 강조:** ‘구체적인 역할’, ‘기여한 부분’, ‘가장 어려웠던 점’ 같이 **단 1~2개 키워드만** `<emphasis level="moderate">`로 강조합니다.
     - **어조의 변화:** 이력서의 특정 고유명사(프로젝트명, 성과 수치)를 말할 때 `<prosody pitch="+5%">`로 **미세하게** 높입니다.
-    - **문장 구조:** `<speak><voice name="ko-KR-SunHiNeural">…</voice></speak>` 최상위 구조를 지키고, 본문은 `<p>`/`<s>`로 나눕니다. 불필요한 태그 중첩 금지.
+    - **문장 구조:** `<speak>…</speak>` 최상위 구조를 지키고, 본문은 `<p>`/`<s>`로 나눕니다. 불필요한 태그 중첩 금지.
     - **발음 보정(선택):** 약어·영문 용어는 `<sub alias="한국어 발음">EPCM</sub>`처럼 처리합니다.
     - **금지 사항:** 과도한 `prosody` 중첩, 300ms 초과 연속 `break`, 3개 초과 `emphasis`, 미닫힘 태그 금지.
 3.  **인사말 금지:** 질문에 "안녕하세요" 같은 인사말을 절대 포함하지 마세요.
@@ -107,11 +105,9 @@ prompt_icebreaker_question = (
 
 [SSML 출력 골격 예시]
 <speak xmlns="http://www.w3.org/2001/10/synthesis">
-  <voice name="ko-KR-SunHiNeural">
-    <p>
-      <s>오늘 여기까지 오시는 데<break time="200ms"/> 어려움은 없으셨나요?</s>
-    </p>
-  </voice>
+   <p>
+     <s>오늘 여기까지 오시는 데<break time="200ms"/> 어려움은 없으셨나요?</s>
+   </p>
 </speak>
 
 [출력 형식]
@@ -137,18 +133,16 @@ prompt_self_introduction_question = (
     - **전략적 끊어 읽기:** 핵심 프로젝트명·기술 용어 **바로 앞**에 `<break time="200ms"/>` 또는 `300ms`를 1회 삽입합니다.
     - **핵심 단어 강조:** ‘구체적인 역할’, ‘기여한 부분’, ‘가장 어려웠던 점’ 같이 **단 1~2개 키워드만** `<emphasis level="moderate">`로 강조합니다.
     - **어조의 변화:** 이력서의 특정 고유명사(프로젝트명, 성과 수치)를 말할 때 `<prosody pitch="+5%">`로 **미세하게** 높입니다.
-    - **문장 구조:** `<speak><voice name="ko-KR-SunHiNeural">…</voice></speak>` 최상위 구조를 지키고, 본문은 `<p>`/`<s>`로 나눕니다. 불필요한 태그 중첩 금지.
+    - **문장 구조:** `<speak>…</speak>` 최상위 구조를 지키고, 본문은 `<p>`/`<s>`로 나눕니다. 불필요한 태그 중첩 금지.
     - **발음 보정(선택):** 약어·영문 용어는 `<sub alias="한국어 발음">EPCM</sub>`처럼 처리합니다.
     - **금지 사항:** 과도한 `prosody` 중첩, 300ms 초과 연속 `break`, 3개 초과 `emphasis`, 미닫힘 태그 금지.
 3.  **제약 조건:** 1문장, 60자 이내, 공손하고 간결.
 
 [SSML 출력 골격 예시]
 <speak xmlns="http://www.w3.org/2001/10/synthesis">
-  <voice name="ko-KR-SunHiNeural">
-    <p>
-      <s><prosody rate="+5%">네, 좋습니다.</prosody> <break time="300ms"/>먼저, 준비하신 자기소개를 부탁드립니다.</s>
-    </p>
-  </voice>
+   <p>
+     <s><prosody rate="+5%">네, 좋습니다.</prosody> <break time="300ms"/>먼저, 준비하신 자기소개를 부탁드립니다.</s>
+   </p>
 </speak>
 
 [출력 형식]
@@ -179,19 +173,17 @@ prompt_motivation_question = (
     - **전략적 끊어 읽기:** 핵심 프로젝트명·기술 용어 **바로 앞**에 `<break time="200ms"/>` 또는 `300ms`를 1회 삽입합니다.
     - **핵심 단어 강조:** ‘구체적인 역할’, ‘기여한 부분’, ‘가장 어려웠던 점’ 같이 **단 1~2개 키워드만** `<emphasis level="moderate">`로 강조합니다.
     - **어조의 변화:** 이력서의 특정 고유명사(프로젝트명, 성과 수치)를 말할 때 `<prosody pitch="+5%">`로 **미세하게** 높입니다.
-    - **문장 구조:** `<speak><voice name="ko-KR-SunHiNeural">…</voice></speak>` 최상위 구조를 지키고, 본문은 `<p>`/`<s>`로 나눕니다. 불필요한 태그 중첩 금지.
+    - **문장 구조:** `<speak>…</speak>` 최상위 구조를 지키고, 본문은 `<p>`/`<s>`로 나눕니다. 불필요한 태그 중첩 금지.
     - **발음 보정(선택):** 약어·영문 용어는 `<sub alias="한국어 발음">EPCM</sub>`처럼 처리합니다.
     - **금지 사항:** 과도한 `prosody` 중첩, 300ms 초과 연속 `break`, 3개 초과 `emphasis`, 미닫힘 태그 금지.
 3.  **제약 조건:** 1문장, 70자 이내, 공손하고 간결.
 
 [SSML 출력 골격 예시]
 <speak xmlns="http://www.w3.org/2001/10/synthesis">
-  <voice name="ko-KR-SunHiNeural">
-    <p>
-      <s><prosody pitch="+5%">{company_name}</prosody>의 <prosody pitch="+5%">{job_title}</prosody> 직무에 관심을 갖게 된</s>
-      <s><emphasis level="moderate">특별한 계기</emphasis>가 있으신가요?</s>
-    </p>
-  </voice>
+   <p>
+     <s><prosody pitch="+5%">{company_name}</prosody>의 <prosody pitch="+5%">{job_title}</prosody> 직무에 관심을 갖게 된</s>
+     <s><emphasis level="moderate">특별한 계기</emphasis>가 있으신가요?</s>
+   </p>
 </speak>
 
 [출력 형식]

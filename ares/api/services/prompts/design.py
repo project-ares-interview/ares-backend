@@ -120,7 +120,7 @@ prompt_generate_question = (
     - **전략적 끊어 읽기:** 핵심 프로젝트명·기술 용어 **바로 앞**에 `<break time="200ms"/>` 또는 `300ms`를 1회 삽입합니다.
     - **핵심 단어 강조:** ‘구체적인 역할’, ‘기여한 부분’, ‘가장 어려웠던 점’ 같이 **단 1~2개 키워드만** `<emphasis level="moderate">`로 강조합니다.
     - **어조의 변화:** 이력서의 특정 고유명사(프로젝트명, 성과 수치)를 말할 때 `<prosody pitch="+5%">`로 **미세하게** 높입니다.
-    - **문장 구조:** `<speak><voice name="ko-KR-SunHiNeural">…</voice></speak>` 최상위 구조를 지키고, 본문은 `<p>`/`<s>`로 나눕니다. 불필요한 태그 중첩 금지.
+    - **문장 구조:** `<speak>…</speak>` 최상위 구조를 지키고, 본문은 `<p>`/`<s>`로 나눕니다. 불필요한 태그 중첩 금지.
     - **발음 보정(선택):** 약어·영문 용어는 `<sub alias="한국어 발음">EPCM</sub>`처럼 처리합니다.
     - **금지 사항:** 과도한 `prosody` 중첩, 300ms 초과 연속 `break`, 3개 초과 `emphasis`, 미닫힘 태그 금지.
 3.  **사실 기반:** 질문에 포함되는 모든 내용(프로젝트 명, 기술, 성과 등)은 반드시 [지원자 이력서]에 명시된 내용이어야 합니다. 절대 없는 사실이나 수치를 만들어내지 마세요.
@@ -151,14 +151,12 @@ prompt_generate_question = (
 
 [SSML 출력 골격 예시]
 <speak xmlns="http://www.w.org/2001/10/synthesis">
-  <voice name="ko-KR-SunHiNeural">
-    <p><prosody rate="+5%">네, 이력서를 보니…</prosody></p>
-    <p>
-      <s>이번에는 <break time="250ms"/><prosody pitch="+5%">프로젝트명</prosody> 경험에 대해,</s>
-      <s><emphasis level="moderate">구체적인 역할</emphasis>과 수행 과정,</s>
-      <s>그리고 최종 결과를 간단히 말씀해 주시겠어요?</s>
+   <p><prosody rate="+5%">네, 이력서를 보니…</prosody></p>
+   <p>
+     <s>이번에는 <break time="250ms"/><prosody pitch="+5%">프로젝트명</prosody> 경험에 대해,</s>
+     <s><emphasis level="moderate">구체적인 역할</emphasis>과 수행 과정,</s>
+     <s>그리고 최종 결과를 간단히 말씀해 주시겠어요?</s>
     </p>
-  </voice>
 </speak>
 
 [출력 JSON]
