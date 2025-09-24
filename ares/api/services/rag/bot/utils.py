@@ -215,12 +215,15 @@ def normalize_interview_plan(plan: dict) -> dict:
     if not isinstance(plan, dict):
         return {"icebreakers": [], "stages": []}
 
+    # 다양한 루트 키 가능성 처리
     root = plan
-    if "interview_plan" in plan and isinstance(plan["interview_plan"], (list, dict)):
+    if "interview_plan" in plan:
         root = {"stages": plan["interview_plan"]}
+    elif "raw_v2_plan" in plan:
+        root = plan["raw_v2_plan"]
 
     ice = root.get("icebreakers") or []
-    stages = root.get("stages") or root.get("plan") or []
+    stages = root.get("stages") or root.get("plan") or root.get("phases") or []
     if isinstance(stages, dict):
         stages = [stages]
 
@@ -253,7 +256,7 @@ def normalize_interview_plan(plan: dict) -> dict:
                 })
             continue
 
-        title = s.get("title") or s.get("name") or s.get("stage") or f"Stage {si}"
+        title = s.get("title") or s.get("name") or s.get("stage") or s.get("phase") or f"Stage {si}"
         qs = s.get("questions") or s.get("items") or []
         if isinstance(qs, dict):
             qs = [qs]
@@ -268,7 +271,12 @@ def normalize_interview_plan(plan: dict) -> dict:
                 if txt:
                     q_dict = {"id": f"{si}-{qi}", "text": txt, "followups": [], "question_type": "unknown"}
             elif isinstance(q, dict):
-                txt = (q.get("text") or q.get("question") or q.get("q") or "").strip()
+                question_content = q.get("text") or q.get("question") or q.get("q")
+                if isinstance(question_content, dict):
+                    txt = (question_content.get("text") or "").strip()
+                else:
+                    txt = str(question_content or "").strip()
+                
                 q_type = q.get("question_type", "unknown")
                 q_id = q.get("id", f"{si}-{qi}")
                 fus = q.get("followups") or q.get("followup") or []

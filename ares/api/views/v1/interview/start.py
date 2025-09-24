@@ -15,6 +15,7 @@ from drf_spectacular.utils import extend_schema, OpenApiExample
 from ares.api.models import InterviewSession, InterviewTurn
 from ares.api.serializers.v1.interview import InterviewStartIn, InterviewStartOut
 from ares.api.services.rag.final_interview_rag import RAGInterviewBot
+from ares.api.services.rag.bot.utils import normalize_interview_plan
 from ares.api.utils.common_utils import get_logger
 from ares.api.utils.state_utils import to_jsonable
 
@@ -28,6 +29,7 @@ User = get_user_model()
 
 # Constants from the original file
 FALLBACK_QUESTION = "가벼운 아이스브레이킹으로 시작해볼게요. 최근에 재미있게 본 콘텐츠가 있나요?"
+FALLBACK_SSML = f"<speak>{FALLBACK_QUESTION}</speak>"
 DEFAULT_FSM: Dict[str, Any] = {
     "stage_idx": 0, "question_idx": 0, "followup_idx": 0,
     "pending_followups": [], "done": False,
@@ -144,37 +146,45 @@ It generates the first question and returns a new session ID.
             if not getattr(rag_bot, "rag_ready", True):
                 return Response({"error": "RAG 시스템이 준비되지 않았습니다."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-            plans = rag_bot.design_interview_plan()
+            raw_plans = rag_bot.design_interview_plan()
+            normalized_plan = normalize_interview_plan(raw_plans)
 
             # --- DEBUGGING: Inspect the generated plan ---
-            log.info(f"[{trace_id}] [PLAN_INFO] Generated Interview Plan: {json.dumps(plans, ensure_ascii=False, indent=2)}")
+            log.info(f"[{trace_id}] [PLAN_INFO] Generated Interview Plan: {json.dumps(normalized_plan, ensure_ascii=False, indent=2)}")
             # --- END DEBUGGING ---
 
             # 면접 계획에서 첫 질문을 직접 추출
             first_question_item = None
             try:
-                # 새로운 CoP 플래너 구조 우선
-                first_question_item = plans["raw_v2_plan"]["phases"][0]["items"][0]
+                # 아이스브레이커가 있으면 그것을 첫 질문으로 사용
+                if normalized_plan.get("icebreakers"):
+                    first_question_item = normalized_plan["icebreakers"][0]
+                else: # 없으면 첫 단계의 첫 질문을 사용
+                    first_question_item = normalized_plan["stages"][0]["questions"][0]
             except (KeyError, IndexError):
-                try:
-                    # 레거시 플래너 구조 호환
-                    first_question_item = plans["normalized_plan"]["stages"][0]["questions"][0]
-                except (KeyError, IndexError):
-                    log.warning(f"[{trace_id}] Could not extract first question from plan, using fallback.")
+                log.warning(f"[{trace_id}] Could not extract first question from normalized plan, using fallback.")
 
-            if first_question_item:
+            question_content = (first_question_item.get("question") or first_question_item.get("text")) if first_question_item else None
+            if isinstance(question_content, dict):
                 first = {
                     "id": first_question_item.get("id", "intro-1"),
-                    "question": first_question_item.get("question", FALLBACK_QUESTION)
+                    "text": question_content.get("text", FALLBACK_QUESTION),
+                    "ssml": question_content.get("ssml", FALLBACK_SSML),
+                }
+            elif isinstance(question_content, str):
+                first = {
+                    "id": first_question_item.get("id", "intro-1"),
+                    "text": question_content,
+                    "ssml": f"<speak>{question_content}</speak>",
                 }
             else:
                 log.warning(f"[{trace_id}] Interview plan is empty or invalid, using fallback question.")
-                first = {"id": "FALLBACK-1", "question": FALLBACK_QUESTION}
+                first = {"id": "FALLBACK-1", "text": FALLBACK_QUESTION, "ssml": FALLBACK_SSML}
 
             log.info(f"[{trace_id}] ✅ 구조화 면접 계획 수립 완료")
 
             rag_context_to_save = {
-                "interview_plans": plans,
+                "interview_plans": raw_plans, # 원본 계획 저장
                 "company_name": company_name,
                 "job_title": job_title, "container_name": container_name, "index_name": index_name,
             }
@@ -195,11 +205,14 @@ It generates the first question and returns a new session ID.
             )
 
             turn = InterviewTurn.objects.create(
-                session=session, turn_index=0, turn_label=first["id"], role=InterviewTurn.Role.INTERVIEWER, question=first["question"],
+                session=session, turn_index=0, turn_label=first["id"], role=InterviewTurn.Role.INTERVIEWER, 
+                question=first["text"], question_ssml=first["ssml"],
             )
 
             out = InterviewStartOut({
-                "message": "Interview session started successfully.", "question": first["question"],
+                "message": "Interview session started successfully.", 
+                "question": first["text"],
+                "question_ssml": first["ssml"],
                 "session_id": str(session.id), "turn_label": turn.turn_label,
                 "context": session.context or {}, "language": session.language,
                 "difficulty": session.difficulty, "interviewer_mode": session.interviewer_mode,

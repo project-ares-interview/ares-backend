@@ -25,7 +25,7 @@ DEFAULT_FSM: Dict[str, Any] = {
 # Helper to get question from the new plan structure (안정성 강화: 경로/키 가변성, 폴백 라벨)
 def _get_question_from_plan(
     plan: dict | None, stage_idx: int, question_idx: int
-) -> Optional[Dict[str, str]]:
+) -> Optional[Dict[str, Any]]:
     if not plan:
         return None
 
@@ -42,12 +42,12 @@ def _get_question_from_plan(
         return None
 
     # question/text 어느 키로 와도 수용
-    text = q.get("question") or q.get("text")
+    question_content = q.get("question") or q.get("text")
     # id/turn_label 폴백 + 최종 폴백 라벨 생성
     q_id = q.get("id") or q.get("turn_label") or f"S{stage_idx + 1}Q{question_idx + 1}"
 
-    if text:
-        return {"text": text, "id": q_id}
+    if question_content:
+        return {"question": question_content, "id": q_id}
     return None
 
 
@@ -98,6 +98,7 @@ Fetches the next question in the interview flow.
                     "session_id": str(session.id),
                     "turn_label": None,
                     "question": None,
+                    "question_ssml": None,
                     "followups": [],
                     "done": True,
                 }
@@ -106,12 +107,20 @@ Fetches the next question in the interview flow.
 
         pending_followups = fsm.get("pending_followups", [])
         next_question_text: Optional[str] = None
+        next_question_ssml: Optional[str] = None
         next_question_id: Optional[str] = None
 
         # 1) 대기 중인 꼬리질문 우선 소진
         if v.get("include_followups", True) and pending_followups:
-            next_question_text = pending_followups.pop(0)
+            followup_item = pending_followups.pop(0)
             fsm["pending_followups"] = pending_followups
+
+            if isinstance(followup_item, dict):
+                next_question_text = followup_item.get("text")
+                next_question_ssml = followup_item.get("ssml")
+            else: # 레거시 호환
+                next_question_text = str(followup_item)
+                next_question_ssml = f"<speak>{next_question_text}</speak>"
 
             main_q_turn_label = fsm.get("last_main_question_id", "FU")
             followup_idx = int(fsm.get("followup_idx", 0)) + 1
@@ -135,14 +144,25 @@ Fetches the next question in the interview flow.
                 next_q_data = _get_question_from_plan(plan, stage_idx, question_idx)
 
             if next_q_data:
-                next_question_text = next_q_data["text"]
-                next_question_id = next_q_data["id"]
-                fsm["last_main_question_id"] = next_question_id
+                question_content = next_q_data.get("question")
+                next_question_id = next_q_data.get("id")
+                
+                if isinstance(question_content, dict):
+                    next_question_text = question_content.get("text")
+                    next_question_ssml = question_content.get("ssml")
+                elif isinstance(question_content, str):
+                    next_question_text = question_content
+                    next_question_ssml = f"<speak>{question_content}</speak>"
 
-                # 다음 호출을 위해 포인터 한 칸 전진
-                fsm["stage_idx"] = stage_idx
-                fsm["question_idx"] = question_idx + 1
-            else:
+                if next_question_text:
+                    fsm["last_main_question_id"] = next_question_id
+                    # 다음 호출을 위해 포인터 한 칸 전진
+                    fsm["stage_idx"] = stage_idx
+                    fsm["question_idx"] = question_idx + 1
+                else:
+                    next_q_data = None # 유효한 질문 텍스트가 없으면 실패 처리
+            
+            if not next_q_data:
                 log.warning(
                     "No next main question. stages=%s stage_idx=%s question_idx=%s",
                     len(plan.get("phases", []))
@@ -163,6 +183,7 @@ Fetches the next question in the interview flow.
                     "session_id": str(session.id),
                     "turn_label": None,
                     "question": None,
+                    "question_ssml": None,
                     "followups": [],
                     "done": True,
                 }
@@ -176,6 +197,7 @@ Fetches the next question in the interview flow.
             turn_label=next_question_id,
             role=InterviewTurn.Role.INTERVIEWER,
             question=next_question_text,
+            question_ssml=next_question_ssml,
         )
 
         out = InterviewNextOut(
@@ -183,6 +205,7 @@ Fetches the next question in the interview flow.
                 "session_id": str(session.id),
                 "turn_label": turn.turn_label,
                 "question": next_question_text,
+                "question_ssml": next_question_ssml,
                 "followups": [],  # next API는 ‘다음 질문’만 반환하므로 빈 리스트로 일관성 유지
                 "done": False,
             }

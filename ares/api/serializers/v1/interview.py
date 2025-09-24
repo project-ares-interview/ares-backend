@@ -67,6 +67,7 @@ class InterviewStartIn(serializers.Serializer):
 class InterviewStartOut(serializers.Serializer):
     message = serializers.CharField()
     question = serializers.CharField()
+    question_ssml = serializers.CharField(required=False, allow_null=True)
     session_id = serializers.UUIDField()
     turn_label = serializers.CharField(help_text="The label of the turn, e.g., '1'.")
     context = serializers.JSONField(required=False)
@@ -94,6 +95,7 @@ class InterviewNextIn(serializers.Serializer):
                 "session_id": "a1b2c3d4-e5f6-7890-1234-567890abcdef",
                 "turn_label": "2",
                 "question": "Tell me about a time you handled a difficult stakeholder.",
+                "question_ssml": "<speak>Tell me about a time you handled a difficult stakeholder.</speak>",
                 "followups": [],
                 "done": False,
             },
@@ -105,6 +107,7 @@ class InterviewNextIn(serializers.Serializer):
                 "session_id": "a1b2c3d4-e5f6-7890-1234-567890abcdef",
                 "turn_label": None,
                 "question": None,
+                "question_ssml": None,
                 "followups": [],
                 "done": True,
             },
@@ -116,6 +119,7 @@ class InterviewNextOut(serializers.Serializer):
     session_id = serializers.UUIDField()
     turn_label = serializers.CharField(allow_null=True, help_text="The label of the turn, e.g., '2' or '2-1'.")
     question = serializers.CharField(allow_null=True)
+    question_ssml = serializers.CharField(required=False, allow_null=True)
     followups = serializers.ListField(child=serializers.CharField(), required=False, default=list)
     done = serializers.BooleanField()
 

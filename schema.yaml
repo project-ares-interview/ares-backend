@@ -384,6 +384,43 @@ paths:
       responses:
         '204':
           description: No response body
+  /api/v1/calendar/events/:
+    get:
+      operationId: api_v1_calendar_events_retrieve
+      description: 이벤트 목록 조회 - 프론트엔드 명세에 맞춘 응답 형식
+      tags:
+      - api
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/calendar/google-auth-callback/:
+    post:
+      operationId: api_v1_calendar_google_auth_callback_create
+      description: Google OAuth 콜백 처리 - 프론트엔드에서 code와 state를 받아서 처리
+      tags:
+      - api
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/v1/calendar/google-auth-url/:
+    get:
+      operationId: api_v1_calendar_google_auth_url_retrieve
+      description: Google OAuth URL 생성 - 프론트엔드에서 사용할 URL 반환
+      tags:
+      - api
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      responses:
+        '200':
+          description: No response body
   /api/v1/cover-letters/:
     get:
       operationId: api_v1_cover_letters_list
@@ -593,7 +630,12 @@ paths:
   /api/v1/interviews/answer/:
     post:
       operationId: api_v1_interviews_answer_create
-      summary: Submit an Answer
+      description: |2
+
+        Submits a candidate's answer to a given question during an active interview session.
+        This endpoint uses a Chain-of-Prompts (CoP) orchestrator to process the answer.
+        - The orchestrator analyzes the answer, generates feedback, scores, coaching, and follow-up questions in a structured pipeline.
+      summary: Submit an Answer (CoP)
       tags:
       - api
       requestBody:
@@ -649,7 +691,14 @@ paths:
   /api/v1/interviews/finish/:
     post:
       operationId: api_v1_interviews_finish_create
-      summary: Finish an Interview Session
+      description: |2
+
+        Marks an interview session as finished and triggers the generation of the final report.
+
+        - This endpoint should be called when the candidate has completed all questions.
+        - The backend compiles the entire interview transcript, generates a comprehensive report, and saves it.
+        - The response will contain the session ID, which now also serves as the report ID.
+      summary: Finish an Interview
       tags:
       - api
       requestBody:
@@ -676,6 +725,13 @@ paths:
   /api/v1/interviews/next/:
     post:
       operationId: api_v1_interviews_next_create
+      description: |2
+
+        Fetches the next question in the interview flow.
+
+        - It first checks for and returns any buffered follow-up questions.
+        - If no follow-ups are available, it proceeds to the next main question based on the normalized interview plan (stages/questions).
+        - If no more questions are left, it marks the interview session as done.
       summary: Get Next Question
       tags:
       - api
@@ -703,16 +759,19 @@ paths:
                 NextQuestion:
                   value:
                     session_id: a1b2c3d4-e5f6-7890-1234-567890abcdef
-                    turn_index: 2
+                    turn_label: '2'
                     question: Tell me about a time you handled a difficult stakeholder.
+                    question_ssml: <speak>Tell me about a time you handled a difficult
+                      stakeholder.</speak>
                     followups: []
                     done: false
                   summary: Next Question
                 InterviewFinished:
                   value:
                     session_id: a1b2c3d4-e5f6-7890-1234-567890abcdef
-                    turn_index: null
+                    turn_label: null
                     question: null
+                    question_ssml: null
                     followups: []
                     done: true
                   summary: Interview Finished
@@ -720,6 +779,13 @@ paths:
   /api/v1/interviews/report/{session_id}/:
     get:
       operationId: api_v1_interviews_report_retrieve
+      description: |2
+
+        Retrieves the detailed report for a finished interview session.
+
+        - The `session_id` from the interview process is used as the report identifier.
+        - If the report has been generated previously, it's returned from the cache.
+        - If not, it will be generated on-demand based on the full interview transcript.
       summary: Get Interview Report
       parameters:
       - in: path
@@ -742,7 +808,11 @@ paths:
   /api/v1/interviews/start/:
     post:
       operationId: api_v1_interviews_start_create
-      summary: Start a New Interview Session
+      description: |2
+
+        Initializes a new interview session based on the provided context (JD, resume, etc.).
+        It generates the first question and returns a new session ID.
+      summary: Start an Interview
       tags:
       - api
       requestBody:
@@ -756,7 +826,6 @@ paths:
           multipart/form-data:
             schema:
               $ref: '#/components/schemas/InterviewStartIn'
-        required: true
       security:
       - {}
       responses:
@@ -3121,10 +3190,14 @@ components:
         session_id:
           type: string
           format: uuid
+          description: The unique identifier for the active interview session.
         question:
           type: string
+          description: The question that was asked to the candidate.
         answer:
           type: string
+          description: The candidate's answer to the question. Must be at least 5
+            characters long.
       required:
       - answer
       - question
@@ -3135,22 +3208,34 @@ components:
         analysis:
           type: object
           additionalProperties: {}
-        followups_buffered:
-          type: array
-          items:
-            type: string
+          description: The detailed analysis of the candidate's answer.
+        transition_phrase:
+          type: string
+          nullable: true
+          description: A smooth transition phrase to the next question.
+        next_question:
+          allOf:
+          - $ref: '#/components/schemas/NextQuestion'
+          nullable: true
+          description: The next question to be asked.
         message:
           type: string
+        turn_label:
+          type: string
+          description: The label of the answer that was just submitted, e.g., '1-1'.
       required:
       - analysis
-      - followups_buffered
       - message
+      - next_question
+      - transition_phrase
+      - turn_label
     InterviewFinishIn:
       type: object
       properties:
         session_id:
           type: string
           format: uuid
+          description: The unique identifier for the interview session to be finished.
       required:
       - session_id
     InterviewFinishOut:
@@ -3169,9 +3254,11 @@ components:
         session_id:
           type: string
           format: uuid
+          description: The unique identifier for the active interview session.
         include_followups:
           type: boolean
           default: true
+          description: Whether to include follow-up questions in the response.
       required:
       - session_id
     InterviewNextOut:
@@ -3180,10 +3267,14 @@ components:
         session_id:
           type: string
           format: uuid
-        turn_index:
-          type: integer
+        turn_label:
+          type: string
           nullable: true
+          description: The label of the turn, e.g., '2' or '2-1'.
         question:
+          type: string
+          nullable: true
+        question_ssml:
           type: string
           nullable: true
         followups:
@@ -3196,7 +3287,7 @@ components:
       - done
       - question
       - session_id
-      - turn_index
+      - turn_label
     InterviewReportOut:
       type: object
       properties:
@@ -3256,29 +3347,50 @@ components:
       properties:
         jd_context:
           type: string
+          default: ''
+          description: The full text of the job description.
         resume_context:
           type: string
+          default: ''
+          description: The full text of the candidate's resume.
         research_context:
           type: string
           default: ''
+          description: Optional research material about the company or role.
         difficulty:
           allOf:
           - $ref: '#/components/schemas/DifficultyEnum'
           default: normal
+          description: |-
+            The desired difficulty level for the interview.
+
+            * `easy` - easy
+            * `normal` - normal
+            * `hard` - hard
         language:
           allOf:
           - $ref: '#/components/schemas/LanguageEnum'
           default: ko
+          description: |-
+            The language for the interview.
+
+            * `ko` - ko
+            * `en` - en
         interviewer_mode:
           allOf:
           - $ref: '#/components/schemas/InterviewerModeEnum'
           default: team_lead
+          description: |-
+            The persona of the AI interviewer.
+
+            * `team_lead` - team_lead
+            * `executive` - executive
         meta:
-          $ref: '#/components/schemas/MetaIn'
-        ncs_context: {}
-      required:
-      - jd_context
-      - resume_context
+          allOf:
+          - $ref: '#/components/schemas/MetaIn'
+          description: Additional metadata about the company and role.
+        ncs_context:
+          description: NCS (National Competency Standards) context for the interview.
     InterviewStartOut:
       type: object
       properties:
@@ -3286,19 +3398,16 @@ components:
           type: string
         question:
           type: string
+        question_ssml:
+          type: string
+          nullable: true
         session_id:
           type: string
           format: uuid
-        turn_index:
-          type: integer
-        context:
-          type: object
-          description: |
-            Contains the full interview plan and other context.
-            NOTE: The structure of the interview plan inside this context has been updated.
-            The new structure is under the key `raw_v2_plan` and uses `phases` and `items` instead of `stages` and `questions`.
-            Example: `{"raw_v2_plan": {"phases": [{"phase": "core", "items": [...]}]}}`
-          readOnly: true
+        turn_label:
+          type: string
+          description: The label of the turn, e.g., '1'.
+        context: {}
         language:
           type: string
           default: ko
@@ -3312,7 +3421,7 @@ components:
       - message
       - question
       - session_id
-      - turn_index
+      - turn_label
     InterviewerModeEnum:
       enum:
       - team_lead
@@ -3430,6 +3539,18 @@ components:
         * `not_served` - 미필
         * `exempted` - 면제
         * `serving` - 복무중
+    NextQuestion:
+      type: object
+      properties:
+        turn_label:
+          type: string
+          nullable: true
+        question:
+          type: string
+          nullable: true
+      required:
+      - question
+      - turn_label
     NullEnum:
       enum:
       - null
@@ -3889,21 +4010,30 @@ components:
           type: string
           format: uri
           nullable: true
+          description: Upload the job description file (e.g., PDF, DOCX).
         resume_file:
           type: string
           format: uri
           nullable: true
+          description: Upload the resume file (e.g., PDF, DOCX).
         research_file:
           type: string
           format: uri
           nullable: true
+          description: Upload a research material file about the company (optional).
         jd_text:
           type: string
+          description: Provide the job description as a string.
         resume_text:
           type: string
+          description: Provide the resume as a string.
         research_text:
           type: string
-        company: {}
+          description: Provide research material about the company as a string (optional).
+        company:
+          description: A JSON object containing company and job details. See CompanyDataSerializer
+            for the expected structure. Can be passed as a JSON string or a direct
+            object.
       required:
       - company
     ResumeAnalysisOut:

@@ -97,6 +97,7 @@ class InterviewTurn(models.Model):
     )
     role = models.CharField(max_length=20, choices=Role.choices)
     question = models.TextField(blank=True, null=True)
+    question_ssml = models.TextField(blank=True, null=True)
     answer = models.TextField(blank=True, null=True)
     scores = models.JSONField(blank=True, null=True)
     feedback = models.TextField(blank=True, null=True)
