@@ -1,5 +1,6 @@
 # ares/api/views/v1/interview/next.py
 import json
+import re
 from typing import Any, Dict, List, Optional
 
 from rest_framework import permissions, status
@@ -43,11 +44,29 @@ def _get_question_from_plan(
 
     # question/text 어느 키로 와도 수용
     question_content = q.get("question") or q.get("text")
-    # id/turn_label 폴백 + 최종 폴백 라벨 생성
     q_id = q.get("id") or q.get("turn_label") or f"S{stage_idx + 1}Q{question_idx + 1}"
 
-    if question_content:
-        return {"question": question_content, "id": q_id}
+    if not question_content:
+        return None
+
+    if isinstance(question_content, dict):
+        # SSML 객체 형식일 경우 text와 ssml을 분리하여 반환
+        text = question_content.get("text", "")
+        # AI가 text 필드에 SSML 태그를 넣는 실수를 해도, 여기서 제거하여 순수 텍스트만 남김
+        plain_text = re.sub(r'<[^>]+>', '', text) if isinstance(text, str) else text
+        return {
+            "text": plain_text,
+            "ssml": question_content.get("ssml"),
+            "id": q_id
+        }
+    elif isinstance(question_content, str):
+        # 일반 텍스트 형식일 경우 ssml을 생성하여 반환
+        return {
+            "text": question_content,
+            "ssml": f"<speak>{question_content}</speak>",
+            "id": q_id
+        }
+    
     return None
 
 
@@ -144,16 +163,10 @@ Fetches the next question in the interview flow.
                 next_q_data = _get_question_from_plan(plan, stage_idx, question_idx)
 
             if next_q_data:
-                question_content = next_q_data.get("question")
+                next_question_text = next_q_data.get("text")
+                next_question_ssml = next_q_data.get("ssml")
                 next_question_id = next_q_data.get("id")
                 
-                if isinstance(question_content, dict):
-                    next_question_text = question_content.get("text")
-                    next_question_ssml = question_content.get("ssml")
-                elif isinstance(question_content, str):
-                    next_question_text = question_content
-                    next_question_ssml = f"<speak>{question_content}</speak>"
-
                 if next_question_text:
                     fsm["last_main_question_id"] = next_question_id
                     # 다음 호출을 위해 포인터 한 칸 전진

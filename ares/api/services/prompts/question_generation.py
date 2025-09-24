@@ -28,43 +28,57 @@ prompt_followup_v2 = (
     + """
 {persona_description}
 목표: '직전 답변 분석 결과(analysis_summary)'와 '평가 기준(evaluation_criteria)', 그리고 '[대화 이력]'을 종합하여 지원자의 역량을 검증하거나 주장의 근거를 확인하는 "꼬리질문 1~2개"를 생성합니다.
-**[매우 중요] '대화 이력'과 '최신 답변'을 비교하여 내용이 일관적인지 확인하세요. 만약 모순되거나 상충되는 부분이 있다면, 그 점에 대해 정중하게 해명을 요구하는 꼬리질문을 최우선으로 생성해야 합니다.**
-**[중요] '평가 기준'에 명시된 Rubric과 기대 답변(Expected Points)을 최우선으로 고려하여, 답변에서 누락되었거나 부족했던 점을 파고드는 질문을 생성해야 합니다.**
+
+[규칙]
+1.  **출력 형식:** 반드시 아래 JSON 스키마와 [SSML 출력 골격 예시]를 따라야 합니다.
+2.  **SSML 생성 상세 규칙 (매우 중요):** 실제 면접관 화법을 재현하기 위해 아래 규칙을 반드시 지키세요.
+    - **자연스러운 도입부:** 본 질문 앞에 짧은 도입 구절(예: “네, 이력서를 보니…”, “좋습니다. 그럼…”)을 넣고, 이 부분만 약간 빠르게 말합니다. `<prosody rate="+5%">도입 구절</prosody>`
+    - **전략적 끊어 읽기:** 핵심 프로젝트명·기술 용어 **바로 앞**에 `<break time="200ms"/>` 또는 `300ms`를 1회 삽입합니다.
+    - **핵심 단어 강조:** ‘구체적인 역할’, ‘기여한 부분’, ‘가장 어려웠던 점’ 같이 **단 1~2개 키워드만** `<emphasis level="moderate">`로 강조합니다.
+    - **어조의 변화:** 이력서의 특정 고유명사(프로젝트명, 성과 수치)를 말할 때 `<prosody pitch="+5%">`로 **미세하게** 높입니다.
+    - **문장 구조:** `<speak><voice name="ko-KR-SunHiNeural">…</voice></speak>` 최상위 구조를 지키고, 본문은 `<p>`/`<s>`로 나눕니다. 불필요한 태그 중첩 금지.
+    - **발음 보정(선택):** 약어·영문 용어는 `<sub alias="한국어 발음">EPCM</sub>`처럼 처리합니다.
+    - **금지 사항:** 과도한 `prosody` 중첩, 300ms 초과 연속 `break`, 3개 초과 `emphasis`, 미닫힘 태그 금지.
+3.  **꼬리질문 스타일 규칙:** 꼬리질문은 대화의 연장선입니다. 절대 "안녕하세요", "네, 잘 들었습니다"와 같은 인사말이나 서두로 시작하지 마세요. 즉시 질문의 본론으로 들어가야 합니다.
+4.  **일관성 검증 최우선 규칙:** 'transcript_context'와 'latest_answer' 사이에 명백한 모순이 발견되면, 다른 모든 규칙을 무시하고 해당 모순을 해결하기 위한 질문을 생성하세요.
+5.  **근거 요구 특별 규칙:** 만약 지원자의 답변이 구체적인 경험이나 근거 없이 자신감, 포부, 의견만을 주장하는 형태라면, 주장에 대한 구체적인 근거, 이유, 또는 관련 경험을 요구하는 질문을 최우선으로 생성해야 합니다.
+6.  **자기소개 특별 규칙:** `question_type`이 "self_intro"인 경우, `latest_answer`에서 언급된 구체적인 경험을 직접적으로 인용하여 더 자세한 설명을 요구하는 질문을 생성하세요.
 
 [입력]
-- phase: {phase}                # "intro" | "core" | "wrapup"
-- question_type: {question_type}# "icebreaking|self_intro|motivation|star|competency|case|system|hard|wrapup"
+- phase: {phase}
+- question_type: {question_type}
 - objective: {objective}
-- transcript_context: {transcript_context} # [대화 이력] 과거 대화 요약 + 최신 대화 원문
+- transcript_context: {transcript_context}
 - latest_answer: {latest_answer}
-- analysis_summary: {analysis_summary} # 답변 분석 요약 (피드백, 강점, 약점 등)
-- evaluation_criteria: {evaluation_criteria} # Rubric 및 기대 답변 포인트
+- analysis_summary: {analysis_summary}
+- evaluation_criteria: {evaluation_criteria}
 - company_context: {company_context}
 - ncs: {ncs}
 - kpi: {kpi}
+
+[SSML 출력 골격 예시]
+<speak xmlns="http://www.w3.org/2001/10/synthesis">
+  <voice name="ko-KR-SunHiNeural">
+    <p><prosody rate="+5%">네, 그 부분에 대해서…</prosody></p>
+    <p>
+      <s>조금 더 자세히 설명해주시겠어요?</s>
+      <s>예를 들어, <emphasis level="moderate">어떤 어려움</emphasis>이 있었나요?</s>
+    </p>
+  </voice>
+</speak>
 
 [출력 스키마]
 {{
   "followups": [
     {{
       "text": "일반 텍스트 꼬리질문",
-      "ssml": "<speak><prosody rate='medium'>SSML 버전 꼬리질문</prosody></speak>"
+      "ssml": "<speak>...</speak>"
     }}
   ],
   "rationale": "무엇을 검증하기 위한 질문인지에 대한 근거(200자 이내)",
   "fallback_used": false,
   "keywords": ["답변의 핵심 키워드1","키워드2"]
 }}
-규칙:
-- **[SSML 생성 규칙]** 모든 질문은 일반 텍스트(text)와 SSML 마크업(ssml)을 포함하는 JSON 객체로 생성해야 합니다. SSML은 자연스러운 대화를 위해 적절한 prosody(속도, 억양)와 break(쉼) 태그를 사용하세요.
-- **[꼬리질문 스타일 규칙]** 꼬리질문은 대화의 연장선입니다. 절대 "안녕하세요", "네, 잘 들었습니다"와 같은 인사말이나 서두로 시작하지 마세요. 즉시 질문의 본론으로 들어가야 합니다.
-- **[일관성 검증 최우선 규칙]** 'transcript_context'와 'latest_answer' 사이에 명백한 모순이 발견되면, 다른 모든 규칙을 무시하고 해당 모순을 해결하기 위한 질문을 생성하세요. (예: "네, 잘 들었습니다. 혹시 제가 잘못 이해했다면 바로잡아 주십시오. 이전 질문에서는 A 프로젝트가 가장 성공적이었다고 하셨는데, 방금 답변에서는 B 프로젝트를 가장 큰 성과로 말씀해주셨습니다. 어떤 차이가 있는지 조금 더 설명해주실 수 있을까요?")
-- **[근거 요구 특별 규칙]** 만약 지원자의 답변이 구체적인 경험이나 근거 없이 자신감, 포부, 의견만을 주장하는 형태라면(예: "제가 최고입니다", "잘 할 수 있습니다", "열심히 하겠습니다"), 다른 어떤 질문보다 주장에 대한 구체적인 근거, 이유, 또는 관련 경험을 요구하는 질문을 최우선으로 생성해야 합니다.
-- **[자기소개 특별 규칙]** `question_type`이 "self_intro"인 경우, `latest_answer`에서 언급된 구체적인 경험(예: 특정 프로젝트, 근무 기간, 기술)을 직접적으로 인용하여 더 자세한 설명을 요구하는 질문을 생성하세요. (예: "네, 자기소개 잘 들었습니다. ...에서 3년간 근무하셨다고 하셨는데, 그 경험에 대해 더 자세히 말씀해주시겠어요?")
-- followups는 1~2개로 제한합니다.
-- evaluation_criteria와 analysis_summary를 최우선으로 활용하여 질문을 생성하세요.
-- latest_answer가 빈약하여 의미 있는 질문 생성이 어려우면 fallback_used=true로 표기하고, 안전한 일반 꼬리질문을 생성하세요.
-- 민감/사생활/차별 유발 소재는 절대 금지입니다.
 """
     + prompt_json_output_only
 )
@@ -78,21 +92,35 @@ prompt_icebreaker_question = (
 면접 시작 전, 지원자의 긴장을 풀어주기 위한 아이스브레이킹 질문 **하나만** 생성합니다.
 
 **규칙:**
-1.  **출력 형식:** 반드시 아래와 같이 일반 텍스트(text)와 SSML(ssml)을 포함하는 JSON 객체로 출력해야 합니다.
-    {{
-      "question": {{
-        "text": "일반 텍스트 질문",
-        "ssml": "<speak>SSML 버전 질문</speak>"
-      }}
-    }}
-2.  **SSML 규칙:** SSML은 `<speak>` 태그로 감싸고, 자연스러운 대화를 위해 `<prosody rate='medium'>`와 `<break time='200ms'/>` 같은 태그를 적절히 사용하세요.
+1.  **출력 형식:** 반드시 아래 JSON 스키마와 [SSML 출력 골격 예시]를 따라야 합니다.
+2.  **SSML 생성 상세 규칙 (매우 중요):** 실제 면접관 화법을 재현하기 위해 아래 규칙을 반드시 지키세요.
+    - **자연스러운 도입부:** 본 질문 앞에 짧은 도입 구절(예: “네, 이력서를 보니…”, “좋습니다. 그럼…”)을 넣고, 이 부분만 약간 빠르게 말합니다. `<prosody rate="+5%">도입 구절</prosody>`
+    - **전략적 끊어 읽기:** 핵심 프로젝트명·기술 용어 **바로 앞**에 `<break time="200ms"/>` 또는 `300ms`를 1회 삽입합니다.
+    - **핵심 단어 강조:** ‘구체적인 역할’, ‘기여한 부분’, ‘가장 어려웠던 점’ 같이 **단 1~2개 키워드만** `<emphasis level="moderate">`로 강조합니다.
+    - **어조의 변화:** 이력서의 특정 고유명사(프로젝트명, 성과 수치)를 말할 때 `<prosody pitch="+5%">`로 **미세하게** 높입니다.
+    - **문장 구조:** `<speak><voice name="ko-KR-SunHiNeural">…</voice></speak>` 최상위 구조를 지키고, 본문은 `<p>`/`<s>`로 나눕니다. 불필요한 태그 중첩 금지.
+    - **발음 보정(선택):** 약어·영문 용어는 `<sub alias="한국어 발음">EPCM</sub>`처럼 처리합니다.
+    - **금지 사항:** 과도한 `prosody` 중첩, 300ms 초과 연속 `break`, 3개 초과 `emphasis`, 미닫힘 태그 금지.
 3.  **인사말 금지:** 질문에 "안녕하세요" 같은 인사말을 절대 포함하지 마세요.
 4.  **질문 주제:** 지원자를 배려하고 긴장을 풀어주는 상황적 질문을 우선적으로 생성합니다.
-    - **좋은 예시:** "오늘 여기까지 오시는 데 얼마나 걸리셨어요?", "오시느라 고생하셨습니다. 혹시 뭐 타고 오셨나요?", "긴장되실 텐데, 물 한잔 드시고 편하게 시작하시겠어요?"
-    - **지양할 예시:** 개인적인 취미, 최근 본 영화, 주말 계획 등 사적인 경험에 대한 질문.
-5.  **제약 조건:**
-    - 전체 내용은 1문장, 80자 이내로 간결해야 합니다.
-    - 민감 정보(가족, 건강, 정치/종교 등)는 절대 묻지 않습니다.
+5.  **제약 조건:** 1문장, 80자 이내로 간결해야 합니다.
+
+[SSML 출력 골격 예시]
+<speak xmlns="http://www.w3.org/2001/10/synthesis">
+  <voice name="ko-KR-SunHiNeural">
+    <p>
+      <s>오늘 여기까지 오시는 데<break time="200ms"/> 어려움은 없으셨나요?</s>
+    </p>
+  </voice>
+</speak>
+
+[출력 형식]
+{{
+  "question": {{
+    "text": "일반 텍스트 질문",
+    "ssml": "<speak>SSML 버전 질문</speak>"
+  }}
+}}
 """
     + prompt_json_output_only
 )
@@ -103,17 +131,33 @@ prompt_self_introduction_question = (
 지원자의 자기소개를 유도하는 질문을 한국어로 정확히 1개만 생성하세요.
 
 **규칙:**
-1.  **출력 형식:** 반드시 아래와 같이 일반 텍스트(text)와 SSML(ssml)을 포함하는 JSON 객체로 출력해야 합니다.
-    {{
-      "question": {{
-        "text": "일반 텍스트 질문",
-        "ssml": "<speak>SSML 버전 질문</speak>"
-      }}
-    }}
-2.  **SSML 규칙:** SSML은 `<speak>` 태그로 감싸고, 자연스러운 대화를 위해 `<prosody rate='medium'>`와 `<break time='200ms'/>` 같은 태그를 적절히 사용하세요.
-3.  **제약 조건:**
-    - 1문장, 60자 이내, 공손하고 간결
-    - 예시 표현(예: "1분 자기소개")을 포함해도 되지만 강제하지는 말 것
+1.  **출력 형식:** 반드시 아래 JSON 스키마와 [SSML 출력 골격 예시]를 따라야 합니다.
+2.  **SSML 생성 상세 규칙 (매우 중요):** 실제 면접관 화법을 재현하기 위해 아래 규칙을 반드시 지키세요.
+    - **자연스러운 도입부:** 본 질문 앞에 짧은 도입 구절(예: “네, 이력서를 보니…”, “좋습니다. 그럼…”)을 넣고, 이 부분만 약간 빠르게 말합니다. `<prosody rate="+5%">도입 구절</prosody>`
+    - **전략적 끊어 읽기:** 핵심 프로젝트명·기술 용어 **바로 앞**에 `<break time="200ms"/>` 또는 `300ms`를 1회 삽입합니다.
+    - **핵심 단어 강조:** ‘구체적인 역할’, ‘기여한 부분’, ‘가장 어려웠던 점’ 같이 **단 1~2개 키워드만** `<emphasis level="moderate">`로 강조합니다.
+    - **어조의 변화:** 이력서의 특정 고유명사(프로젝트명, 성과 수치)를 말할 때 `<prosody pitch="+5%">`로 **미세하게** 높입니다.
+    - **문장 구조:** `<speak><voice name="ko-KR-SunHiNeural">…</voice></speak>` 최상위 구조를 지키고, 본문은 `<p>`/`<s>`로 나눕니다. 불필요한 태그 중첩 금지.
+    - **발음 보정(선택):** 약어·영문 용어는 `<sub alias="한국어 발음">EPCM</sub>`처럼 처리합니다.
+    - **금지 사항:** 과도한 `prosody` 중첩, 300ms 초과 연속 `break`, 3개 초과 `emphasis`, 미닫힘 태그 금지.
+3.  **제약 조건:** 1문장, 60자 이내, 공손하고 간결.
+
+[SSML 출력 골격 예시]
+<speak xmlns="http://www.w3.org/2001/10/synthesis">
+  <voice name="ko-KR-SunHiNeural">
+    <p>
+      <s><prosody rate="+5%">네, 좋습니다.</prosody> <break time="300ms"/>먼저, 준비하신 자기소개를 부탁드립니다.</s>
+    </p>
+  </voice>
+</speak>
+
+[출력 형식]
+{{
+  "question": {{
+    "text": "일반 텍스트 질문",
+    "ssml": "<speak>SSML 버전 질문</speak>"
+  }}
+}}
 """
     + prompt_json_output_only
 )
@@ -126,20 +170,37 @@ prompt_motivation_question = (
 - 직무명: {job_title}
 
 [요청]
-위 컨텍스트를 활용하여, 지원 동기를 묻는 '의문문'을 한국어로 정확히 1개만 생성하세요. 반드시 물음표(?)로 끝나야 합니다.
+위 컨텍스트를 활용하여, 지원 동기를 묻는 '의문문'을 한국어로 정확히 1개만 생성하세요.
 
 **규칙:**
-1.  **출력 형식:** 반드시 아래와 같이 일반 텍스트(text)와 SSML(ssml)을 포함하는 JSON 객체로 출력해야 합니다.
-    {{
-      "question": {{
-        "text": "일반 텍스트 질문",
-        "ssml": "<speak>SSML 버전 질문</speak>"
-      }}
-    }}
-2.  **SSML 규칙:** SSML은 `<speak>` 태그로 감싸고, 자연스러운 대화를 위해 `<prosody rate='medium'>`와 `<break time='200ms'/>` 같은 태그를 적절히 사용하세요.
-3.  **제약 조건:**
-    - 1문장, 70자 이내, 공손하고 간결
-    - 예시: "우리 회사에 지원하신 동기는 무엇인가요?", "{company_name}의 {job_title} 직무에 관심을 갖게 된 계기가 있으신가요?"
+1.  **출력 형식:** 반드시 아래 JSON 스키마와 [SSML 출력 골격 예시]를 따라야 합니다.
+2.  **SSML 생성 상세 규칙 (매우 중요):** 실제 면접관 화법을 재현하기 위해 아래 규칙을 반드시 지키세요.
+    - **자연스러운 도입부:** 본 질문 앞에 짧은 도입 구절(예: “네, 이력서를 보니…”, “좋습니다. 그럼…”)을 넣고, 이 부분만 약간 빠르게 말합니다. `<prosody rate="+5%">도입 구절</prosody>`
+    - **전략적 끊어 읽기:** 핵심 프로젝트명·기술 용어 **바로 앞**에 `<break time="200ms"/>` 또는 `300ms`를 1회 삽입합니다.
+    - **핵심 단어 강조:** ‘구체적인 역할’, ‘기여한 부분’, ‘가장 어려웠던 점’ 같이 **단 1~2개 키워드만** `<emphasis level="moderate">`로 강조합니다.
+    - **어조의 변화:** 이력서의 특정 고유명사(프로젝트명, 성과 수치)를 말할 때 `<prosody pitch="+5%">`로 **미세하게** 높입니다.
+    - **문장 구조:** `<speak><voice name="ko-KR-SunHiNeural">…</voice></speak>` 최상위 구조를 지키고, 본문은 `<p>`/`<s>`로 나눕니다. 불필요한 태그 중첩 금지.
+    - **발음 보정(선택):** 약어·영문 용어는 `<sub alias="한국어 발음">EPCM</sub>`처럼 처리합니다.
+    - **금지 사항:** 과도한 `prosody` 중첩, 300ms 초과 연속 `break`, 3개 초과 `emphasis`, 미닫힘 태그 금지.
+3.  **제약 조건:** 1문장, 70자 이내, 공손하고 간결.
+
+[SSML 출력 골격 예시]
+<speak xmlns="http://www.w3.org/2001/10/synthesis">
+  <voice name="ko-KR-SunHiNeural">
+    <p>
+      <s><prosody pitch="+5%">{company_name}</prosody>의 <prosody pitch="+5%">{job_title}</prosody> 직무에 관심을 갖게 된</s>
+      <s><emphasis level="moderate">특별한 계기</emphasis>가 있으신가요?</s>
+    </p>
+  </voice>
+</speak>
+
+[출력 형식]
+{{
+  "question": {{
+    "text": "일반 텍스트 질문",
+    "ssml": "<speak>SSML 버전 질문</speak>"
+  }}
+}}
 """
     + prompt_json_output_only
 )
