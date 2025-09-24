@@ -65,6 +65,7 @@ Marks an interview session as finished and triggers the generation of the final 
         # --- 컨텍스트 로드 끝 ---
 
         rag_bot = RAGInterviewBot(
+            session_id=str(session.id),
             company_name=rag_info.get("company_name", ""), job_title=rag_info.get("job_title", ""),
             interviewer_mode=session.interviewer_mode, resume_context=resume_context,
             ncs_context=_ensure_ncs_dict(session.context), jd_context=jd_context,
@@ -74,47 +75,49 @@ Marks an interview session as finished and triggers the generation of the final 
         transcript = []
         structured_scores = []
         
-        interviewer_turns = {turn.turn_label: turn for turn in turns if turn.role == InterviewTurn.Role.INTERVIEWER}
-        candidate_answers = {turn.turn_label: turn for turn in turns if turn.role == InterviewTurn.Role.CANDIDATE}
+        all_turns = list(turns)
 
-        for label, interviewer_turn in interviewer_turns.items():
-            candidate_turn = candidate_answers.get(label)
-            
-            transcript.append({
-                "role": "interviewer",
-                "text": interviewer_turn.question,
-                "id": label,
-            })
+        # 전체 턴을 순회하며 대화 기록과 점수 재구성 (꼬리질문 누락 방지)
+        for i, turn in enumerate(all_turns):
+            # 면접관 턴 처리
+            if turn.role == InterviewTurn.Role.INTERVIEWER:
+                transcript.append({
+                    "role": "interviewer",
+                    "text": turn.question,
+                    "id": turn.turn_label,
+                })
+                # 다음 턴이 없거나, 다음 턴이 후보자 답변이 아닌 경우 -> [답변 없음]으로 처리
+                if (i + 1 >= len(all_turns)) or (all_turns[i + 1].role != InterviewTurn.Role.CANDIDATE):
+                    transcript.append({
+                        "role": "candidate",
+                        "text": "[답변 없음]",
+                        "id": turn.turn_label,
+                    })
+                    structured_scores.append({
+                        "question_id": turn.turn_label,
+                        "question": turn.question,
+                        "answer": "[답변 없음]",
+                        "scoring": {"scoring_reason": "평가 불가 (답변 없음)"}
+                    })
 
-            if candidate_turn:
+            # 후보자 턴 처리
+            elif turn.role == InterviewTurn.Role.CANDIDATE:
                 transcript.append({
                     "role": "candidate",
-                    "text": candidate_turn.answer,
-                    "id": label,
+                    "text": turn.answer,
+                    "id": turn.turn_label,
                 })
-                if candidate_turn.scores:
-                    structured_scores.append(candidate_turn.scores)
+                # 점수 기록이 있으면 추가
+                if turn.scores:
+                    structured_scores.append(turn.scores)
+                # 점수 기록이 없으면 (예: 아이스브레이킹) 기본 정보 추가
                 else:
-                    # 답변은 했지만 분석 결과가 없는 경우 (예: 아이스브레이킹)
                     structured_scores.append({
-                        "question_id": label,
-                        "question": interviewer_turn.question,
-                        "answer": candidate_turn.answer,
+                        "question_id": turn.turn_label,
+                        "question": turn.question, # 후보자 턴에도 질문이 저장되어 있음
+                        "answer": turn.answer,
                         "scoring": {"scoring_reason": "평가 제외 항목입니다."}
                     })
-            else:
-                # 후보자가 해당 질문에 답변하지 않은 경우
-                transcript.append({
-                    "role": "candidate",
-                    "text": "[답변 없음]",
-                    "id": label,
-                })
-                structured_scores.append({
-                    "question_id": label,
-                    "question": interviewer_turn.question,
-                    "answer": "[답변 없음]",
-                    "scoring": {"scoring_reason": "평가 불가 (답변 없음)"}
-                })
 
         # --- 이력서 분석 수행 ---
         full_resume_analysis = {}

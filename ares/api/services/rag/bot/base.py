@@ -36,6 +36,7 @@ class RAGBotBase:
         self,
         company_name: str,
         job_title: str,
+        session_id: Optional[str] = None,
         difficulty: str = "normal",
         interviewer_mode: str = "team_lead",
         ncs_context: Optional[dict] = None,
@@ -46,6 +47,7 @@ class RAGBotBase:
         **kwargs,
     ):
         print(f"🤖 RAG Bot Base System Initializing (Interviewer: {interviewer_mode})...")
+        self.session_id = session_id
         self.company_name = company_name or "알수없음회사"
         self.job_title = job_title or "알수없음직무"
         self.difficulty = difficulty

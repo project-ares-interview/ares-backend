@@ -9,6 +9,7 @@ Final Report generator for the RAG Interview Bot.
 import json
 from typing import Any, Dict, List, Optional
 import numpy as np
+import logging
 
 from ares.api.utils.ai_utils import safe_extract_json
 from ares.api.utils.common_utils import get_logger

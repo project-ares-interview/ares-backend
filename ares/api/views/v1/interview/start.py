@@ -146,10 +146,29 @@ It generates the first question and returns a new session ID.
 
             plans = rag_bot.design_interview_plan()
 
-            first = rag_bot.get_first_question()
+            # --- DEBUGGING: Inspect the generated plan ---
+            log.info(f"[{trace_id}] [PLAN_INFO] Generated Interview Plan: {json.dumps(plans, ensure_ascii=False, indent=2)}")
+            # --- END DEBUGGING ---
 
-            if not first:
-                log.warning(f"[{trace_id}] 첫 질문 추출 실패 → 폴백 질문 사용")
+            # 면접 계획에서 첫 질문을 직접 추출
+            first_question_item = None
+            try:
+                # 새로운 CoP 플래너 구조 우선
+                first_question_item = plans["raw_v2_plan"]["phases"][0]["items"][0]
+            except (KeyError, IndexError):
+                try:
+                    # 레거시 플래너 구조 호환
+                    first_question_item = plans["normalized_plan"]["stages"][0]["questions"][0]
+                except (KeyError, IndexError):
+                    log.warning(f"[{trace_id}] Could not extract first question from plan, using fallback.")
+
+            if first_question_item:
+                first = {
+                    "id": first_question_item.get("id", "intro-1"),
+                    "question": first_question_item.get("question", FALLBACK_QUESTION)
+                }
+            else:
+                log.warning(f"[{trace_id}] Interview plan is empty or invalid, using fallback question.")
                 first = {"id": "FALLBACK-1", "question": FALLBACK_QUESTION}
 
             log.info(f"[{trace_id}] ✅ 구조화 면접 계획 수립 완료")
@@ -161,8 +180,9 @@ It generates the first question and returns a new session ID.
             }
 
             fsm = dict(DEFAULT_FSM)
+            # 첫 질문(0,0)은 이미 반환했으므로, FSM의 다음 상태는 (0,1)을 가리켜야 함
             fsm["stage_idx"] = 0
-            fsm["question_idx"] = 0
+            fsm["question_idx"] = 1
 
             session = InterviewSession.objects.create(
                 user=user,  # 인증 여부와 관계없이 user 객체를 세션에 연결
@@ -175,7 +195,7 @@ It generates the first question and returns a new session ID.
             )
 
             turn = InterviewTurn.objects.create(
-                session=session, turn_index=0, turn_label=first.get("id", "1"), role=InterviewTurn.Role.INTERVIEWER, question=first["question"],
+                session=session, turn_index=0, turn_label=first["id"], role=InterviewTurn.Role.INTERVIEWER, question=first["question"],
             )
 
             out = InterviewStartOut({

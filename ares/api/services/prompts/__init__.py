@@ -27,8 +27,10 @@ from .analysis import (
 from .classification import prompt_intent_classifier, prompt_jd_classifier
 from .design import (
     prompt_interview_designer,
-    prompt_interview_designer_v2,
     prompt_resume_analyzer,
+    prompt_extract_competencies,
+    prompt_generate_question,
+    prompt_create_rubric,
 )
 from .report import (
     prompt_rag_final_report,
@@ -84,8 +86,10 @@ __all__ = [
     "prompt_jd_classifier",
     # from design
     "prompt_interview_designer",
-    "prompt_interview_designer_v2",
     "prompt_resume_analyzer",
+    "prompt_extract_competencies",
+    "prompt_generate_question",
+    "prompt_create_rubric",
     # from report
     "prompt_rag_final_report",
     "prompt_detailed_section",

@@ -39,13 +39,15 @@ prompt_interview_designer = (
 # -----------------------------------------------------------------------------
 # V2: 인터뷰 설계자 (Full Simulation Plan with phases/types/mix/curve)
 # -----------------------------------------------------------------------------
+"""
+# 아래 프롬프트는 Chain-of-Prompts 아키텍처로 대체되었습니다. (백업용으로 주석 처리)
 prompt_interview_designer_v2 = (
     SYSTEM_RULES
-    + """
+    + '''
 {persona_description}
 {question_style_guide}
 당신은 위 관점을 가진 '면접 설계자'입니다. 아래 정보를 바탕으로 20~30분 완전한 시뮬레이션용 계획을 설계하세요.
-요구사항:
+... 요구사항:
 - phases: intro → core → wrapup 순서
 - 각 item은 question_type을 다음 중 하나로: ["icebreaking","self_intro","motivation","star","competency","case","system","hard","wrapup"]
 - **[매우 중요] 각 질문은 하나의 명확한 목적에만 집중해야 합니다. 예를 들어, 경험을 묻는 질문과 지원 동기를 묻는 질문을 절대 한 문장으로 합치지 마세요.**
@@ -62,85 +64,122 @@ prompt_interview_designer_v2 = (
 - **rubric**: "매우우수/우수/보통/약간미흡/미흡" 5단계의 평가 기준을 구체적인 서술형으로 정의하고, 각 등급에 50/40/30/20/10점의 점수를 부여합니다.
 
 [[최신 사업 요약]]  
-{business_info}
+{business_info} ...
+'''
+    + prompt_json_output_only
+)
+"""
+
+
+# -----------------------------------------------------------------------------
+# Chain-of-Prompts (CoP) V3: Interview Planner
+# -----------------------------------------------------------------------------
+
+# --- Step 1: 핵심 역량 추출 ---
+prompt_extract_competencies = (
+    SYSTEM_RULES
+    + """
+당신은 {job_title} 직무의 채용을 담당하는 시니어 리크루터입니다.
+아래의 [직무 기술서], [지원자 이력서], 그리고 [회사의 인재상]을 종합적으로 분석하여, 이번 면접에서 반드시 검증해야 할 **가장 중요한 핵심 역량/경험 3~5개**를 추출하세요.
+- 각 역량은 지원자의 실제 경험과 직접적으로 관련된 내용이어야 합니다.
+- 너무 일반적이거나 추상적인 역량(예: "소통 능력")보다는, 이력서에 기재된 구체적인 프로젝트나 성과와 연결된 역량(예: "Primavera P6를 활용한 공정 관리 시스템 개선 경험")을 우선적으로 선택하세요.
+- 회사의 인재상과 관련된 경험이 있다면 반드시 포함하세요.
+
+[[직무 기술서 (JD)]]
+{jd_context}
+
+[[지원자 이력서]]
+{resume_context}
 
 [[회사의 인재상]]
 {ideal_candidate_profile}
 
-[[JD]]  
-{jd_context}
-[[이력서]]  
-{resume_context}
-[[리서치]]  
-{research_context}
-[[NCS 요약/키워드]]  
-{ncs_info}
-난이도 지침: {difficulty_instruction}
-
-[출력 JSON 스키마]
+[출력 JSON]
 {{
-  "language": "ko",
-  "difficulty_curve": ["easy","normal","hard"],
-  "mix_ratio": {{"star":0.4,"case":0.3,"competency":0.2,"system":0.1}},
-  "phases": [
-    {{
-      "phase": "intro",
-      "items": [
-        {{
-          "question_type": "icebreaking",
-          "question": "...",
-          "followups": ["..."],
-          "expected_points": ["긴장 완화", "분위기 조성"],
-          "rubric": [
-            {{"label": "매우우수", "score": 50, "desc": "편안하고 자연스럽게 대답하며 긍정적인 분위기를 조성함."}},
-            {{"label": "보통", "score": 30, "desc": "간단하게 대답하며 무난한 수준의 상호작용을 보임."}},
-            {{"label": "미흡", "score": 10, "desc": "단답형으로 대답하거나 긴장한 기색이 역력함."}}
-          ]
-        }},
-        {{"question_type":"self_intro","question":"...", "followups":["..."], "expected_points": ["..."], "rubric": [...]}},
-        {{"question_type":"motivation","question":"...", "followups":["..."], "expected_points": ["..."], "rubric": [...]}}
-      ]
-    }},
-    {{
-      "phase": "core",
-      "items": [
-        {{
-          "question_type": "star",
-          "question": "...",
-          "followups": ["..."],
-          "kpi": ["OEE","MTBF"],
-          "expected_points": ["문제 정의(Situation/Task)", "본인의 역할/행동(Action)", "구체적인 결과(Result)", "정량적 성과", "배운 점"],
-          "rubric": [
-            {{"label": "매우우수", "score": 50, "desc": "STAR 구조에 맞춰 모든 요소를 구체적이고 논리적으로 설명하며, 정량적 성과를 명확히 제시함."}},
-            {{"label": "우수", "score": 40, "desc": "STAR 구조에 맞춰 대부분의 요소를 설명하지만, 일부 내용의 구체성이 다소 부족함."}},
-            {{"label": "보통", "score": 30, "desc": "STAR 구조를 따르려 노력했으나, 일부 요소가 누락되거나 설명이 불분명함."}},
-            {{"label": "약간미흡", "score": 20, "desc": "자신의 행동이나 결과에 대한 설명이 부족하고, 대부분 상황 설명에 치중함."}},
-            {{"label": "미흡", "score": 10, "desc": "질문의 의도를 파악하지 못하고, 경험을 제대로 설명하지 못함."}}
-          ]
-        }},
-        {{"question_type":"competency","question":"...","followups":["..."], "expected_points": ["..."], "rubric": [...]}},
-        {{"question_type":"case","question":"...","followups":["..."], "kpi":["..."], "expected_points": ["..."], "rubric": [...]}},
-        {{"question_type":"system","question":"...","followups":["..."], "expected_points": ["..."], "rubric": [...]}},
-        {{"question_type":"hard","question":"...","followups":["..."], "expected_points": ["..."], "rubric": [...]}}
-      ]
-    }},
-    {{
-      "phase": "wrapup",
-      "items": [
-        {{"question_type":"wrapup","question":"마지막으로 질문이나 하고 싶은 말이 있으신가요?", "followups":[], "expected_points": ["회사/직무에 대한 관심도", "입사 의지", "마지막 어필"], "rubric": [...]}}
-      ]
-    }}
+  "competencies_to_verify": [
+    "...",
+    "...",
+    "..."
   ]
 }}
-출력 전 자가검증 체크리스트:
-- 질문 중복/의도 충돌 없음
-- core에서 난이도 easy→normal→hard 흐름 유지
-- mix_ratio 준수(±1개 허용)
-- 직무 적합성(KPI/NCS) 커버됨
-- **모든 질문에 expected_points와 rubric이 포함되었는가**
 """
     + prompt_json_output_only
 )
+
+# --- Step 2: 역량 기반 질문 생성 ---
+prompt_generate_question = (
+    SYSTEM_RULES
+    + """
+당신은 {persona_description}의 관점을 가진 행동/경험 기반 질문(Behavioral Question)의 전문가입니다.
+아래의 모든 정보를 종합적으로 고려하여, [검증 목표 역량]을 심층적으로 검증할 수 있는 **구체적인 질문 1개**를 생성하세요.
+
+[규칙]
+1.  **사실 기반:** 질문에 포함되는 모든 내용(프로젝트 명, 기술, 성과 등)은 반드시 [지원자 이력서]에 명시된 내용이어야 합니다. 절대 없는 사실이나 수치를 만들어내지 마세요.
+2.  **행동 유도:** 지원자가 자신의 경험을 STAR 기법(Situation, Task, Action, Result)에 맞춰 상세히 설명하도록 유도하는 방식으로 질문하세요. (단, 질문에 'STAR'라는 단어를 직접 사용하지 마세요.)
+3.  **전략적 연계:** 질문이 단순히 이력서 사실 확인에 그치지 않고, [회사의 인재상]이나 [최신 사업 요약]과 자연스럽게 연결되도록 하세요.
+4.  **평가 포인트 포함:** 이 질문을 통해 무엇을 확인하고 싶은지 `expected_points`에 3~5개 키워드로 요약하여 포함하세요.
+5.  **간결함:** 질문은 면접관이 실제로 말하는 것처럼, 간결하고 자연스러운 단일 문장으로 만드세요. STAR의 각 요소를 질문에 모두 나열하지 마세요. (좋은 예: "X 경험에 대해, 당시 상황부터 최종 결과까지 구체적으로 설명해주시겠어요?")
+
+[검증 목표 역량]
+{competency}
+
+[지원자 이력서]
+{resume_context}
+
+[직무 기술서 (JD)]
+{jd_context}
+
+[최신 사업 요약]
+{business_info}
+
+[회사의 인재상]
+{ideal_candidate_profile}
+
+[NCS 요약/키워드]
+{ncs_info}
+
+난이도 지침: {difficulty_instruction}
+
+[출력 JSON]
+{{
+  "question_type": "star",
+  "question": "...",
+  "followups": ["...", "..."],
+  "expected_points": ["...", "...", "..."]
+}}
+"""
+    + prompt_json_output_only
+)
+
+# --- Step 3: 평가 기준(Rubric) 생성 ---
+prompt_create_rubric = (
+    SYSTEM_RULES
+    + """
+당신은 채용 평가 설계 전문가입니다.
+아래의 [면접 질문]과 [핵심 평가 포인트]를 바탕으로, 지원자의 답변을 평가할 수 있는 상세한 **5단계 채점 기준(Rubric)**을 생성하세요.
+- 각 단계(매우우수/우수/보통/약간미흡/미흡)는 지원자의 답변이 어떤 수준일 때 해당되는지에 대한 구체적인 행동 묘사를 포함해야 합니다.
+- 점수는 50/40/30/20/10점을 부여합니다.
+
+[면접 질문]
+{question}
+
+[핵심 평가 포인트]
+{expected_points}
+
+[출력 JSON]
+{{
+  "rubric": [
+    {{ "label": "매우우수", "score": 50, "desc": "..." }},
+    {{ "label": "우수", "score": 40, "desc": "..." }},
+    {{ "label": "보통", "score": 30, "desc": "..." }},
+    {{ "label": "약간미흡", "score": 20, "desc": "..." }},
+    {{ "label": "미흡", "score": 10, "desc": "..." }}
+  ]
+}}
+"""
+    + prompt_json_output_only
+)
+
 
 # -----------------------------------------------------------------------------
 # 이력서 RAG 비교 분석 (Resume Analyzer)

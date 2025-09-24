@@ -3291,7 +3291,14 @@ components:
           format: uuid
         turn_index:
           type: integer
-        context: {}
+        context:
+          type: object
+          description: |
+            Contains the full interview plan and other context.
+            NOTE: The structure of the interview plan inside this context has been updated.
+            The new structure is under the key `raw_v2_plan` and uses `phases` and `items` instead of `stages` and `questions`.
+            Example: `{"raw_v2_plan": {"phases": [{"phase": "core", "items": [...]}]}}`
+          readOnly: true
         language:
           type: string
           default: ko

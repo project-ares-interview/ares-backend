@@ -313,3 +313,57 @@ def extract_first_main_question(plan: dict) -> Tuple[Optional[str], Optional[str
             if txt:
                 return txt, q.get("id")
     return None, None
+
+
+def _extract_numbers(text: str) -> List[str]:
+    # 12, 12%, 1.5배, 2배, 3개월 등 폭넓게 커버
+    return re.findall(r"\d+(?:\.\d+)?\s*(?:%|배|개월|주|일|시간)?", text)
+
+def normalize_after_sanitization(q: str) -> str:
+    """
+    '효율을 구체적인 수치 향상시킨' 같은 어색한 구문을 자연스런 물음으로 바꿔줌
+    """
+    q = re.sub(r"(구체적인 수치)\s*향상시킨", "얼마나 개선되었는지", q)
+    q = re.sub(r"(구체적인 수치)\s*감소시킨", "얼마나 감소시켰는지", q)
+    q = re.sub(r"(구체적인 수치)\s*단축한", "얼마나 단축했는지", q)
+    # 필요 시 패턴 추가
+    return q
+
+def sanitize_question_against_resume(question: str, resume_blob: str) -> str:
+    """
+    질문 내 정량표현이 이력서/자소서 원문에 존재하지 않으면 일반화 표현으로 치환.
+    """
+    original_question = question
+    for token in set(_extract_numbers(question)):
+        if token not in resume_blob:
+            # 숫자 토큰이 원문에 없으면 일반화
+            question = question.replace(token, "구체적인 수치")
+    
+    # 문장 패턴 보정
+    question = normalize_after_sanitization(question)
+    
+    if original_question != question:
+        logger.info("[PLAN-SANITIZED] before=%s || after=%s", original_question, question)
+        
+    return question
+
+def sanitize_plan_questions(plan: Dict, resume_blob: str) -> Dict:
+    """
+    phases[*].items[*].question / followups[*] 전체에 Sanitizer 적용
+    """
+    if not isinstance(plan, dict):
+        return plan
+    phases = plan.get("phases") or []
+    for ph in phases:
+        items = ph.get("items") or []
+        for it in items:
+            q = it.get("question")
+            if isinstance(q, str):
+                it["question"] = sanitize_question_against_resume(q, resume_blob)
+            fus = it.get("followups") or []
+            new_fus = []
+            for fu in fus:
+                if isinstance(fu, str):
+                    new_fus.append(sanitize_question_against_resume(fu, resume_blob))
+            it["followups"] = new_fus
+    return plan

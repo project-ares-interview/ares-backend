@@ -45,6 +45,7 @@ class RAGInterviewBot:
         self,
         company_name: str,
         job_title: str,
+        session_id: Optional[str] = None,
         difficulty: str = "normal",
         interviewer_mode: str = "team_lead",
         ncs_context: Optional[dict] = None,
@@ -56,6 +57,7 @@ class RAGInterviewBot:
         self.base = RAGBotBase(
             company_name=company_name,
             job_title=job_title,
+            session_id=session_id,
             difficulty=difficulty,
             interviewer_mode=interviewer_mode,
             ncs_context=ncs_context,
@@ -89,10 +91,8 @@ class RAGInterviewBot:
         self.plan = normalized_plan
 
         # View에서 두 가지 버전을 모두 사용할 수 있도록 dict 형태로 반환
-        return {
-            "raw_v2_plan": raw_plan,
-            "normalized_plan": normalized_plan
-        }
+        # raw_plan 안에 이미 raw_v2_plan과 normalized_plan이 모두 들어있으므로 그대로 반환
+        return raw_plan
 
     def _get_opening_statement(self) -> str:
         """면접관 모드와 템플릿 조합에 따라 동적인 첫 인사말을 반환합니다."""
@@ -139,37 +139,6 @@ class RAGInterviewBot:
         
         # 최종 인사말 조합
         return f"{base_greeting} {mode_specific_line} {warm_welcome}"
-
-    def get_first_question(self) -> Dict[str, Any]:
-        """
-        인사말과 함께 동적으로 생성된 아이스브레이킹 질문을 반환합니다.
-        실패 시 안전한 폴백 메커니즘을 사용합니다.
-        """
-        opening_statement = self._get_opening_statement()
-        icebreaker_text = ""
-
-        try:
-            # 템플릿 기반의 가벼운 질문을 우선적으로 사용
-            icebreaker_text = random.choice(ICEBREAK_TEMPLATES_KO)
-        except Exception:
-            # 템플릿 사용 실패 시 LLM 호출로 폴백
-            try:
-                icebreaker_text = make_icebreak_question_llm_or_template(self.base._chat_json)
-            except Exception:
-                # LLM 호출도 실패하면 최종 폴백
-                icebreaker_text = "오늘 면접 보러 오시는 길은 어떠셨나요?"
-
-        if icebreaker_text:
-            full_question = f"{opening_statement} {icebreaker_text}"
-            return {"id": "icebreaker-template-1", "question": full_question}
-
-        # 아이스브레이커 생성에 완전히 실패한 경우, 첫 번째 메인 질문으로 폴백
-        qtext, qid = extract_first_main_question(self.plan or {})
-        if not qtext:
-            return {}  # 계획이 비어있는 극단적인 경우
-        
-        full_question = f"{opening_statement} {qtext}"
-        return {"id": qid or "main-1-1", "question": full_question}
 
     # -----------------------------
     # Intent Classification

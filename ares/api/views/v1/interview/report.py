@@ -43,6 +43,7 @@ Retrieves the detailed report for a finished interview session.
             return Response({"error": "RAG 컨텍스트가 없습니다."}, status=status.HTTP_400_BAD_REQUEST)
 
         rag_bot = RAGInterviewBot(
+            session_id=str(session.id),
             company_name=rag_info.get("company_name", ""), job_title=rag_info.get("job_title", ""),
             container_name=rag_info.get("container_name", ""), index_name=rag_info.get("index_name", ""),
             interviewer_mode=session.interviewer_mode, resume_context=session.resume_context,
