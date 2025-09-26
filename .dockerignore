@@ -1,0 +1,44 @@
+# Git
+.git
+
+# Docker
+Dockerfile
+.dockerignore
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environment
+.venv/
+venv/
+
+# IDE and editor settings
+.vscode/
+.idea/
+.cursor/
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# Environment files (secrets should be injected at runtime)
+.env.keys
+
+# Local database
+db.sqlite3
+*.sqlite3
+
+# Logs and artifacts
+logs/
+radars/
+
+# Static files collected locally
+# In production, these are collected by the deployment process, not from local files
+staticfiles/
+
+# Documentation
+README.md
+REQUIREMENTS.md

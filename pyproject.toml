@@ -55,6 +55,7 @@ dependencies = [
     "xhtml2pdf>=0.2.17",
     "beautifulsoup4>=4.13.5",
     "lxml>=6.0.1",
+    "certbot>=5.0.0",
 ]
 
 [tool.ruff]

@@ -43,7 +43,25 @@ AZURE_SEARCH_KEY = os.getenv("AZURE_SEARCH_KEY")
 
 
 
-ALLOWED_HOSTS: list[str] = []
+ALLOWED_HOSTS: list[str] = os.getenv("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1,small.guide").split(",")
+
+
+# CSRF and CORS settings for production
+DOMAIN_NAME = os.getenv("DOMAIN_NAME")
+if DOMAIN_NAME:
+    CSRF_TRUSTED_ORIGINS = [f"http://{DOMAIN_NAME}, https://{DOMAIN_NAME}"]
+    CORS_ALLOWED_ORIGINS = [f"http://{DOMAIN_NAME}, https://{DOMAIN_NAME}"]
+else:
+    # Settings for local development
+    CORS_ALLOWED_ORIGINS = [
+        f"http://localhost:{CLIENT_PORT}",
+        f"http://{CLIENT_HOST}:{CLIENT_PORT}",
+    ]
+    CSRF_TRUSTED_ORIGINS = [
+        f"http://localhost:{CLIENT_PORT}",
+        f"http://{CLIENT_HOST}:{CLIENT_PORT}",
+    ]
+
 
 # RAG-specific settings from environment variables
 
@@ -254,4 +272,5 @@ SPECTACULAR_SETTINGS = {
     'SERVE_INCLUDE_SCHEMA': False,
 }
 
-
+USE_X_FORWARDED_HOST = True
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')

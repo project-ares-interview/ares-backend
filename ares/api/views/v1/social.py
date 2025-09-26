@@ -41,7 +41,6 @@ class CustomSocialLoginView(SocialLoginView):
 
 class GoogleLogin(CustomSocialLoginView):
     adapter_class = GoogleOAuth2Adapter
-    callback_url = f"http://{CLIENT_HOST}:{CLIENT_PORT}"
     client_class = OAuth2Client
 
 
